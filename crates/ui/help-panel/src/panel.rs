@@ -17,14 +17,23 @@ pub enum HelpAction {
 
 const DEFAULT_WIDTH: f32 = 340.0;
 
-/// Draws the panel on the right if help is open. `search_focused` says whether
-/// the search box should have keyboard focus.
+/// Draws the panel on the right if help is open. `tabs` names the tabs that
+/// sections are listed under, and `search_focused` says whether the search box
+/// should have keyboard focus.
 ///
-/// The panel shows a list of entries grouped by category, or one entry's page.
-/// Groups start folded and unfold while searching. With the search box focused,
-/// the arrow keys move through the list, Enter opens a page, and Escape goes
-/// back from a page, then leaves.
-pub fn show(ui: &mut Ui, state: &mut HelpState, sections: &[HelpSection], search_focused: bool) -> Option<HelpAction> {
+/// The panel shows one tab's entries grouped by category, or one entry's page.
+/// Groups start folded and unfold while searching. A search covers every tab:
+/// each tab shows how many entries match, and when only another tab has
+/// matches, the panel switches to it. With the search box focused, the arrow
+/// keys move through the list, Enter opens a page, and Escape goes back from a
+/// page, then leaves.
+pub fn show(
+    ui: &mut Ui,
+    state: &mut HelpState,
+    sections: &[HelpSection],
+    tabs: &[&str],
+    search_focused: bool,
+) -> Option<HelpAction> {
     if !state.open {
         state.search_rect = None;
         return None;
@@ -32,11 +41,23 @@ pub fn show(ui: &mut Ui, state: &mut HelpState, sections: &[HelpSection], search
     if let Some(topic) = state.pending_topic.take()
         && let Some((section, entry)) = find(sections, &topic, None)
     {
-        state.page = Some(Page { section, name: entry.name.clone() });
+        open_page(state, sections, section, entry.name.clone());
     }
 
     let id = Id::unique("excel_help_search");
-    let found = filter(sections, &state.query);
+    let all_found = filter(sections, &state.query);
+    let searching = !state.query.trim().is_empty();
+    let counts: Vec<usize> = (0..tabs.len())
+        .map(|tab| all_found.iter().filter(|s| s.tab == tab).flat_map(|s| &s.groups).map(|g| g.entries.len()).sum())
+        .collect();
+    if searching
+        && counts.get(state.tab).is_none_or(|count| *count == 0)
+        && let Some(other) = counts.iter().position(|count| *count > 0)
+    {
+        state.tab = other;
+        state.highlight = None;
+    }
+    let found: Vec<HelpSection> = all_found.into_iter().filter(|section| section.tab == state.tab).collect();
     let visible = visible_entries(state, sections, &found);
     let mut action = None;
 
@@ -64,6 +85,18 @@ pub fn show(ui: &mut Ui, state: &mut HelpState, sections: &[HelpSection], search
             });
             ui.add_space(6.0);
 
+            ui.horizontal(|ui| {
+                for (index, title) in tabs.iter().enumerate() {
+                    let label = if searching { format!("{title} ({})", counts[index]) } else { (*title).to_owned() };
+                    if ui.selectable_label(state.tab == index, RichText::new(label).strong()).clicked() {
+                        state.tab = index;
+                        state.page = None;
+                        state.highlight = None;
+                    }
+                }
+            });
+            ui.add_space(6.0);
+
             let before = state.query.clone();
             let search = TextEdit::singleline(&mut state.query)
                 .id(id)
@@ -87,7 +120,7 @@ pub fn show(ui: &mut Ui, state: &mut HelpState, sections: &[HelpSection], search
             if search_focused && state.page.is_none() && ui.input(|i| i.key_pressed(Key::Enter)) {
                 let chosen = state.highlight.or((visible.len() == 1).then_some(0));
                 if let Some((section, name)) = chosen.and_then(|index| visible.get(index)) {
-                    state.page = Some(Page { section: *section, name: name.clone() });
+                    open_page(state, sections, *section, name.clone());
                 }
             }
 
@@ -102,6 +135,12 @@ pub fn show(ui: &mut Ui, state: &mut HelpState, sections: &[HelpSection], search
         });
 
     action
+}
+
+/// Shows an entry's page, on the tab its section belongs to.
+fn open_page(state: &mut HelpState, sections: &[HelpSection], section: usize, name: String) {
+    state.tab = sections[section].tab;
+    state.page = Some(Page { section, name });
 }
 
 /// The entries the list shows, in order, as section index and name.
@@ -157,8 +196,10 @@ fn show_list(ui: &mut Ui, state: &mut HelpState, sections: &[HelpSection], found
     let searching = !state.query.trim().is_empty();
     let mut position = 0;
     for section in found {
-        ui.label(RichText::new(&section.title).strong());
-        ui.add_space(2.0);
+        if !section.title.is_empty() {
+            ui.label(RichText::new(&section.title).strong());
+            ui.add_space(2.0);
+        }
         let color = section.color.unwrap_or(ui.visuals().selection.stroke.color);
         for group in &section.groups {
             let key = group_key(section, &group.title);
@@ -249,7 +290,7 @@ fn show_page(ui: &mut Ui, state: &mut HelpState, sections: &[HelpSection], secti
                 if ui.link(label).clicked()
                     && let Some((section, found)) = find(sections, name, Some(section_index))
                 {
-                    state.page = Some(Page { section, name: found.name.clone() });
+                    open_page(state, sections, section, found.name.clone());
                 }
             }
         });

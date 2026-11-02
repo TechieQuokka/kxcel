@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*/*"]
 
 [workspace.package]
-version = "1.15.1"
+version = "1.19.0"
 edition = "2024"
 license = "PolyForm-Noncommercial-1.0.0"
 
@@ -24,6 +24,7 @@ excel-cmd-find = { path = "crates/commands/find" }
 excel-cmd-navigate = { path = "crates/commands/navigate" }
 excel-cmd-structure = { path = "crates/commands/structure" }
 excel-cmd-sheet = { path = "crates/commands/sheet" }
+excel-cmd-view = { path = "crates/commands/view" }
 excel-ui-help-panel = { path = "crates/ui/help-panel" }
 excel-ui-grid = { path = "crates/ui/grid" }
 excel-ui-command-line = { path = "crates/ui/command-line" }

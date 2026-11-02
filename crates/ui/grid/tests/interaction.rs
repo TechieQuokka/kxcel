@@ -14,16 +14,25 @@ struct Harness {
     state: GridState,
     sheet: Sheet,
     actions: Vec<GridAction>,
+    functions: Vec<FunctionInfo>,
     time: f64,
 }
 
 impl Harness {
     fn new() -> Self {
+        let functions = ["AVERAGE", "MAX", "MIN", "SUM"]
+            .map(|name| FunctionInfo { name: name.to_owned(), help: String::new() })
+            .to_vec();
+        Self::with_functions(functions)
+    }
+
+    fn with_functions(functions: Vec<FunctionInfo>) -> Self {
         let mut harness = Self {
             ctx: egui::Context::default(),
             state: GridState::default(),
             sheet: Sheet::new("S"),
             actions: Vec::new(),
+            functions,
             time: 0.0,
         };
         harness.frame(Vec::new());
@@ -44,12 +53,9 @@ impl Harness {
             events,
             ..Default::default()
         };
-        let functions: Vec<FunctionInfo> = ["AVERAGE", "MAX", "MIN", "SUM"]
-            .map(|name| FunctionInfo { name: name.to_owned(), help: String::new() })
-            .to_vec();
-        let Self { state, sheet, actions, .. } = self;
+        let Self { state, sheet, actions, functions, .. } = self;
         let mut output = self.ctx.run_ui(input, |ui| {
-            actions.extend(show(ui, state, sheet, true, &functions));
+            actions.extend(show(ui, state, sheet, true, functions));
         });
         output.textures_delta.clear();
     }
@@ -209,18 +215,35 @@ fn edited_text_lines_up_with_cell_text() {
 }
 
 #[test]
-fn an_equals_sign_lists_every_function() {
+fn the_list_waits_for_two_letters() {
     let mut h = Harness::new();
     h.typed("=");
-    assert_eq!(h.state.offered_functions(), ["AVERAGE", "MAX", "MIN", "SUM"]);
+    assert!(h.state.offered_functions().is_empty(), "nothing for = alone");
+    h.typed("m");
+    assert!(h.state.offered_functions().is_empty(), "nothing for one letter, such as a cell address");
+    h.typed("a");
+    assert_eq!(h.state.offered_functions(), ["MAX"]);
+}
+
+#[test]
+fn the_list_shows_at_most_eight() {
+    let functions: Vec<FunctionInfo> =
+        (0..11).map(|n| FunctionInfo { name: format!("SUM{}", (b'A' + n) as char), help: String::new() }).collect();
+    let mut h = Harness::with_functions(functions);
+    h.typed("=su");
+    assert_eq!(h.state.offered_functions().len(), 8);
+    assert_eq!(h.state.more_functions(), 3);
+    h.typed("mk");
+    assert_eq!(h.state.offered_functions(), ["SUMK"]);
+    assert_eq!(h.state.more_functions(), 0);
 }
 
 #[test]
 fn typing_narrows_the_list_and_tab_completes() {
     let mut h = Harness::new();
     h.typed("=");
-    h.typed("m");
-    assert_eq!(h.state.offered_functions(), ["MAX", "MIN"]);
+    h.typed("ma");
+    assert_eq!(h.state.offered_functions(), ["MAX"]);
     h.key(Key::Tab, Modifiers::NONE);
     h.frame(Vec::new());
     assert_eq!(h.state.edit_text(), Some("=MAX("));
@@ -232,14 +255,15 @@ fn typing_narrows_the_list_and_tab_completes() {
 
 #[test]
 fn arrows_pick_from_the_list_instead_of_finishing_the_edit() {
-    let mut h = Harness::new();
-    h.typed("=m");
+    let functions = ["MIN", "MINA"].map(|name| FunctionInfo { name: name.to_owned(), help: String::new() }).to_vec();
+    let mut h = Harness::with_functions(functions);
+    h.typed("=mi");
     h.key(Key::ArrowDown, Modifiers::NONE);
     assert!(h.state.is_editing());
     assert_eq!(h.state.cursor, addr("A1"));
     h.key(Key::Tab, Modifiers::NONE);
     h.frame(Vec::new());
-    assert_eq!(h.state.edit_text(), Some("=MIN("));
+    assert_eq!(h.state.edit_text(), Some("=MINA("));
 }
 
 #[test]
@@ -254,11 +278,11 @@ fn completion_replaces_only_the_name_being_typed() {
 #[test]
 fn escape_closes_the_list_first_and_then_cancels() {
     let mut h = Harness::new();
-    h.typed("=s");
+    h.typed("=su");
     h.key(Key::Escape, Modifiers::NONE);
     assert!(h.state.is_editing());
     assert!(h.state.offered_functions().is_empty());
-    h.typed("u");
+    h.typed("m");
     assert_eq!(h.state.offered_functions(), ["SUM"], "typing reopens the list");
     h.key(Key::Escape, Modifiers::NONE);
     h.key(Key::Escape, Modifiers::NONE);
@@ -268,7 +292,7 @@ fn escape_closes_the_list_first_and_then_cancels() {
 #[test]
 fn clicking_a_listed_function_completes_it() {
     let mut h = Harness::new();
-    h.typed("=s");
+    h.typed("=su");
     // The list opens just below the cell, with a small title above the first item.
     let item = pos2(56.0 + 40.0, 24.0 + 24.0 + 32.0);
     h.frame(vec![Event::PointerMoved(item)]);
@@ -569,4 +593,44 @@ fn the_wheel_scrolls_by_whole_rows() {
     }
     assert!(h.state.top_row > 0);
     assert_eq!(h.state.cursor, addr("A1"));
+}
+
+#[test]
+fn tab_closes_open_parentheses_and_stays() {
+    let mut h = Harness::new();
+    h.typed("=SUM(A1:A3, MAX(B1");
+    h.key(Key::Tab, Modifiers::NONE);
+    h.frame(Vec::new());
+    assert!(h.state.is_editing(), "the closed formula waits to be checked");
+    assert_eq!(h.state.edit_text(), Some("=SUM(A1:A3, MAX(B1))"));
+    assert_eq!(h.state.cursor, addr("A1"));
+    assert!(matches!(h.actions.last(), Some(GridAction::Notice(text)) if text.contains("Closed 2")));
+    h.key(Key::Tab, Modifiers::NONE);
+    assert_eq!(h.actions.last(), Some(&commit("A1", "=SUM(A1:A3, MAX(B1))")));
+    assert_eq!(h.state.cursor, addr("B1"));
+}
+
+#[test]
+fn only_tab_closes_parentheses() {
+    let mut h = Harness::new();
+    h.typed("=SUM(A1");
+    h.key(Key::Enter, Modifiers::NONE);
+    assert_eq!(h.actions.last(), Some(&commit("A1", "=SUM(A1")), "enter enters it as typed");
+    h.typed("=LEFT(\"(\"");
+    h.key(Key::Tab, Modifiers::NONE);
+    h.frame(Vec::new());
+    assert_eq!(h.state.edit_text(), Some("=LEFT(\"(\")"), "a parenthesis inside text does not count");
+}
+
+#[test]
+fn completion_comes_before_closing_parentheses() {
+    let mut h = Harness::new();
+    h.typed("=SUM(ma");
+    h.key(Key::Tab, Modifiers::NONE);
+    h.frame(Vec::new());
+    assert_eq!(h.state.edit_text(), Some("=SUM(MAX("));
+    h.typed("1");
+    h.key(Key::Tab, Modifiers::NONE);
+    h.frame(Vec::new());
+    assert_eq!(h.state.edit_text(), Some("=SUM(MAX(1))"));
 }

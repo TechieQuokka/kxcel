@@ -7,6 +7,11 @@ pub fn help_pressed(ctx: &Context) -> bool {
     ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F1))
 }
 
+/// Whether the full screen shortcut was pressed.
+pub fn fullscreen_pressed(ctx: &Context) -> bool {
+    ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F11))
+}
+
 /// Whether the save shortcut was pressed. Saving runs the `save` command, so it
 /// has the same confirmation rules as typing it.
 pub fn save_pressed(ctx: &Context) -> bool {

@@ -8,6 +8,7 @@ mod help;
 mod icon;
 mod keymap;
 mod series;
+mod settings;
 mod theme;
 
 use std::path::PathBuf;
@@ -29,8 +30,9 @@ fn main() -> eframe::Result {
         options,
         Box::new(|creation| {
             fonts::install(&creation.egui_ctx);
-            theme::apply(&creation.egui_ctx);
-            Ok(Box::new(ExcelApp::new(path)))
+            let app = ExcelApp::new(path);
+            theme::apply(&creation.egui_ctx, app.theme());
+            Ok(Box::new(app))
         }),
     )
 }

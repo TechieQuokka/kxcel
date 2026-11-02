@@ -30,6 +30,8 @@ pub fn run(args: &Args) -> Result<(), String> {
                 Effect::DocumentReplaced => cursor = CellAddr::default(),
                 Effect::Quit => break 'commands,
                 Effect::ShowHelp(topic) => print!("{}", help_text(topic.as_deref())),
+                Effect::Fullscreen(_) => eprintln!("{line}: full screen only applies in the app window"),
+                Effect::Theme(_) => eprintln!("{line}: themes only apply in the app window"),
                 _ => {}
             }
         }

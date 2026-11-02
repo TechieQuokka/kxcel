@@ -12,7 +12,7 @@ use excel_formula_engine::FormulaEngine;
 use excel_xlsx::XlsxStore;
 
 /// The order command categories are listed in. Others follow.
-pub const COMMAND_CATEGORIES: &[&str] = &["File", "Edit", "Navigate", "Sheet", "Help"];
+pub const COMMAND_CATEGORIES: &[&str] = &["File", "Edit", "Navigate", "Sheet", "View", "Help"];
 
 /// The order function categories are listed in. Others follow.
 pub const FUNCTION_CATEGORIES: &[&str] = &["Math", "Logic", "Text", "Lookup", "Date"];
@@ -28,6 +28,7 @@ pub fn registry() -> CommandRegistry {
     excel_cmd_navigate::register(&mut registry);
     excel_cmd_structure::register(&mut registry);
     excel_cmd_sheet::register(&mut registry);
+    excel_cmd_view::register(&mut registry);
     registry
 }
 
@@ -84,8 +85,22 @@ mod tests {
     fn every_command_is_registered() {
         let registry = registry();
         for name in [
-            "help", "set", "save", "save!", "exit", "exit!", "open", "open!", "sort", "find", "goto", "insert",
-            "delete", "sheet",
+            "help",
+            "set",
+            "save",
+            "save!",
+            "exit",
+            "exit!",
+            "open",
+            "open!",
+            "sort",
+            "find",
+            "goto",
+            "insert",
+            "delete",
+            "sheet",
+            "fullscreen",
+            "theme",
         ] {
             assert!(registry.complete(name).iter().any(|c| c.name == name), "{name}");
         }

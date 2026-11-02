@@ -144,3 +144,17 @@ fn set_keeps_quotes_in_formulas() {
     assert!(output.status.success(), "{}", stderr(&output));
     assert_eq!(stdout(&output), "사과 주스\t맞음\t1\n");
 }
+
+#[test]
+fn window_commands_say_they_need_the_app() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("t.xlsx");
+    let output = cli(&[file.to_str().unwrap(), "-c", "fullscreen on", "-c", "theme light", "-c", "set A1 1", "-p"]);
+    assert!(output.status.success(), "the remaining commands still run");
+    assert!(
+        stderr(&output).contains("full screen only") && stderr(&output).contains("themes only"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(stdout(&output), "1\n");
+}

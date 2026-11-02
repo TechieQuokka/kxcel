@@ -1,7 +1,7 @@
 # kxcel: Design Document
 
-Status: implemented through 1.15.1. Hand checks for 1.6.0 onward are listed in section 8.
-Version: 1.15.1. All crates share the workspace version. A new feature raises the
+Status: implemented through 1.19.0. Hand checks for 1.6.0 onward are listed in section 8.
+Version: 1.19.0. All crates share the workspace version. A new feature raises the
 minor version, such as 1.0.0 to 1.1.0, and a bug fix raises the patch version,
 such as 1.1.0 to 1.1.1.
 Last updated: 2026-11-02
@@ -52,7 +52,7 @@ requiring a paid license from the copyright holder. See `LICENSE` and
 | Command syntax | No `:` prefix, so a command is just `sort B` | The command line is a dedicated input, so no marker is needed |
 | Command line focus | `Ctrl+L` or a mouse click to enter, `Esc` to return to the grid. After a command, the keyboard stays in the command line unless the command moved the cursor (1.6.0) | Typing in the grid starts cell editing, and `Ctrl+L` never conflicts with cell input. Staying lets commands run one after another |
 | Command names | Whole words, no abbreviations: `save`, `open`, `exit` (1.6.0) | Easier to read and remember than `w`, `e`, and `q` |
-| Theme | Dark by default, with light and dark switching added after the first version | Reviewed in the layout mockup. Switching is done by command |
+| Theme | Dark by default, switched with `theme dark` or `theme light` and remembered (1.19.0) | Reviewed in the layout mockup. Switching is done by command |
 
 ## 3. Features
 
@@ -148,8 +148,18 @@ Features outside this first version are added when real use calls for them.
 - A test checks that every help example stating a result gives that result
 - Whole-column references such as `A:A` are not supported yet. Use a range
   such as `A1:A1000`
-- Function completion: `=` lists every function, typing narrows the list, `Tab` or
-  a click completes to `=SUM(`, arrows pick, and `Esc` closes the list
+- Function completion: typing a function name lists the functions starting with
+  it, `Tab` or a click completes to `=SUM(`, arrows pick, and `Esc` closes the
+  list. Since 1.15.2 the list opens from two letters, so `=` alone and a cell
+  address such as `=A1` show nothing, and it shows at most eight functions,
+  with a `+N more` line when more letters would narrow it
+- `Tab` closes parentheses a formula leaves open (1.16.0), such as
+  `=SUM(A1:A3` to `=SUM(A1:A3)`, and stays in the cell with a note in the
+  command line, since where a parenthesis belongs can change the result. `Tab`
+  again finishes the edit. Parentheses inside quoted text do not count, and
+  with the function list open, `Tab` completes a function first. `Enter`, the
+  arrows, and clicks enter the formula as typed, which shows `?` when it
+  cannot be calculated
 - Automatic recalculation when a value changes
 - Visible errors, such as `#DIV/0!` and circular references
 - Unsupported functions keep their original formula and stored value. The cell
@@ -178,6 +188,8 @@ line put back, so it can be fixed and run again (1.6.0).
 | `insert` | Insert rows or columns |
 | `delete` | Delete rows or columns |
 | `sheet` | List, switch, or add sheets |
+| `fullscreen` | Full screen: `fullscreen on`, `fullscreen off`, or just `fullscreen` to switch, as `F11` does (1.18.0) |
+| `theme` | Colors: `theme dark`, `theme light`, or just `theme` to switch. Remembered for the next start (1.19.0) |
 | `set` | Set a cell, so `kxcel-cli` can enter data. It takes the rest of its line as typed, so quotes in formulas stay (1.15.1) |
 | `help` | Show commands, functions, and keys, optionally filtered: `help sort` (1.3.0) |
 
@@ -227,17 +239,20 @@ Picking a folder lists its contents next. A path with spaces is quoted, and
 - Charts, merged cells, printing, and macros
 - Filters and pivot tables
 
-### Planned after the first version
+### View (1.18.0, 1.19.0)
 
-**Theme switching**, using `theme dark` and `theme light`:
-
-- Add `crates/commands/theme/` (`excel-cmd-theme`) and register it in
-  `excel-features`, which also adds it to autocomplete.
-- The command does not know about the GUI. It requests the change through an
-  `Effect`, and `excel-app` applies it.
-- `kxcel-cli` has no window, so it reports that the command is GUI-only.
-- Colors live in one place from stage 2, with only the dark theme at first, so
-  that adding a light theme does not require changing drawing code.
+- **Full screen:** `fullscreen on`, `fullscreen off`, or `fullscreen` to switch,
+  and `F11` the same. It follows the window manager too, if it leaves full
+  screen itself. Full screen is not remembered.
+- **Themes:** `theme dark`, `theme light`, or `theme` to switch. Dark is the
+  default. Each theme is one palette in `theme.rs`, since widgets read colors
+  from `egui::Visuals`, and function names in help get a darker purple on light.
+- The choice of theme is kept in `~/.config/kxcel/settings.conf`, or under
+  `$XDG_CONFIG_HOME`, as a line such as `theme = light`. A missing file or an
+  unknown value gives the default, and tests never read or write the real file.
+- Both commands live in `excel-cmd-view` and only ask the app through an
+  `Effect`, since they know nothing about the window. `kxcel-cli` has no window,
+  so it notes that they only apply in the app and carries on.
 
 ## 4. Usage
 
@@ -298,6 +313,12 @@ The panel was reworked in 1.9.0 to stay usable as commands and functions grow:
   opens the highlighted entry, or the only match.
 - `help sum`, naming an entry exactly, opens its page. A partial name lists matches.
 - `kxcel-cli` prints the same page for `-c "help sum"`, and lists by category otherwise.
+- Two tabs since 1.17.0: **Functions**, typed in cells, and **Commands**, which
+  also holds the keys as one group, since both work the application. Help opens
+  on the last tab used, Functions at first. A search covers both tabs: each tab
+  shows its number of matches, and when only the other tab has matches, help
+  switches to it. Opening a page, from a search, a related link, or `help sum`,
+  shows the tab it belongs to.
 
 Each command and function describes itself with a `Doc` from `excel-model`,
 which holds these parts. Only the summary and usage are required. The category
@@ -317,7 +338,7 @@ the desktop entry, so run `packaging/install.sh` to see it in the dock.
 
 ### Project structure
 
-There are 23 crates. Package names carry an `excel-` prefix because a crate
+There are 24 crates. Package names carry an `excel-` prefix because a crate
 named `core` could conflict with Rust's built-in `core` library.
 
 ```
@@ -384,7 +405,8 @@ excel/
     │   ├── find/                    # excel-cmd-find: find
     │   ├── navigate/                # excel-cmd-navigate: goto
     │   ├── structure/               # excel-cmd-structure: insert, delete
-    │   └── sheet/                   # excel-cmd-sheet: sheet
+    │   ├── sheet/                   # excel-cmd-sheet: sheet
+    │   └── view/                    # excel-cmd-view: fullscreen, theme
     │
     ├── ui/
     │   ├── grid/                    # excel-ui-grid
@@ -407,7 +429,8 @@ excel/
         │   ├── src/ main, args, runner
         │   └── tests/ cli
         └── app/                     # excel-app, binary: kxcel
-            └── src/ main, app, keymap, dialogs, actions, series, theme, fonts, icon, help
+            └── src/ main, app, keymap, dialogs, actions, series, theme, settings,
+                     fonts, icon, help
 ```
 
 ### Dependency rules
@@ -588,6 +611,8 @@ built. The hand checks from stage 2 are listed in section 8.
 | Help panel rework (1.9.0) | Covered by automated tests | Check by hand: folding groups, pages, related links, arrow keys |
 | Dates (1.11.0) | Covered by automated tests | Check a file with dates from Excel |
 | Functions (1.12.0 to 1.15.0) | Covered by automated tests, including every help example with a result | Compare a few results with Excel |
+| Completion limits, Tab closing parentheses, help tabs (1.15.2 to 1.17.0) | Covered by automated tests | Check by hand while typing formulas |
+| Full screen and themes (1.18.0, 1.19.0) | Covered by automated tests, which cannot see the real window | Check `F11`, `theme light`, and that the theme returns after a restart |
 | Large recalculation | Incremental since 1.10.0, and checked against full recalculation by a randomized test. Opening a file and whole-sheet commands still compute everything | Done |
 | Column widths | Written to the file but not read back, so they reset on reopening | Add when real use needs it |
 | Multi-line cells in Excel | Line breaks are saved, but Excel shows them on one line unless the cell has wrapping turned on, which this app does not write | Add a wrap format if files are shared with Excel |

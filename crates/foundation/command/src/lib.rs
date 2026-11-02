@@ -12,7 +12,7 @@ pub mod testing;
 
 pub use command::Command;
 pub use context::Context;
-pub use effect::Effect;
+pub use effect::{Effect, Theme};
 pub use error::{CommandError, Confirmation};
 pub use excel_model::Doc;
 pub use parse::{quote_arg, split_line};

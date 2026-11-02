@@ -27,6 +27,7 @@ type `=` to list functions.
 - Commands such as `save`, `open`, `exit`, `sort`, `find`, and `goto`, with
   `Tab` completing command names and file paths
 - A help panel with a page for every command and function (`F1`)
+- Full screen (`F11`) and dark or light themes (`theme light`)
 - Fill handle that continues series such as 1, 2, 3 and 1, 2, 4
 - Multi-line cells, Korean input, undo, copy and paste
 - A headless CLI that runs the same commands as the app

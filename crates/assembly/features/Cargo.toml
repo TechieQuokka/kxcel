@@ -20,6 +20,7 @@ excel-cmd-find.workspace = true
 excel-cmd-navigate.workspace = true
 excel-cmd-structure.workspace = true
 excel-cmd-sheet.workspace = true
+excel-cmd-view.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

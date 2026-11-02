@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use egui::{CentralPanel, Frame, Panel, Ui, ViewportCommand};
-use excel_command::{Calculator, CommandError, CommandRegistry, Context, Effect};
+use excel_command::{Calculator, CommandError, CommandRegistry, Context, Effect, Theme};
 use excel_edit::Document;
 use excel_features::{Services, registry};
 use excel_ui_command_line::{CommandLineAction, CommandLineState};
@@ -10,7 +10,8 @@ use excel_ui_help_panel::{HelpAction, HelpSection, HelpState};
 
 use crate::actions::{self, CopiedCells};
 use crate::dialogs::{self, Dialog};
-use crate::{help, keymap};
+use crate::settings::{self, Settings};
+use crate::{help, keymap, theme};
 
 const COMMAND_LINE_HEIGHT: f32 = 30.0;
 const STATUS_BAR_HEIGHT: f32 = 26.0;
@@ -47,6 +48,10 @@ pub struct ExcelApp {
     copied: Option<CopiedCells>,
     dialog: Option<Dialog>,
     allow_close: bool,
+    fullscreen: bool,
+    theme: Theme,
+    /// Where settings are kept, or `None` to keep them only for this run.
+    settings_path: Option<PathBuf>,
     title: String,
 }
 
@@ -69,7 +74,9 @@ impl ExcelApp {
             .map(|(name, doc)| FunctionInfo { name: name.to_owned(), help: format!("{}  {}", doc.usage, doc.summary) })
             .collect();
         let registry = registry();
-        let help_sections = help::sections(&registry, &services.calculator.functions());
+        let settings_path = settings::default_path();
+        let theme = settings_path.as_deref().map(Settings::load).unwrap_or_default().theme;
+        let help_sections = help::sections(&registry, &services.calculator.functions(), theme);
         Self {
             services,
             registry,
@@ -83,6 +90,9 @@ impl ExcelApp {
             copied: None,
             dialog,
             allow_close: false,
+            fullscreen: false,
+            theme,
+            settings_path,
             title: String::new(),
         }
     }
@@ -121,6 +131,7 @@ impl ExcelApp {
         let effects = std::mem::take(&mut command.effects);
 
         let mut moved = false;
+        let mut notice = None;
         for effect in effects {
             match effect {
                 Effect::MoveCursor(addr) => {
@@ -132,6 +143,8 @@ impl ExcelApp {
                     ctx.send_viewport_cmd(ViewportCommand::Close);
                 }
                 Effect::ShowHelp(topic) => self.help.open(topic),
+                Effect::Fullscreen(on) => notice = Some(self.set_fullscreen(ctx, on)),
+                Effect::Theme(theme) => notice = Some(self.set_theme(ctx, theme)),
                 Effect::DocumentReplaced => {
                     self.grid.reset();
                     self.copied = None;
@@ -144,11 +157,39 @@ impl ExcelApp {
         }
 
         result?;
-        match message {
+        match message.or(notice) {
             Some(message) => self.command_line.set_message(message),
             None => self.command_line.clear_message(),
         }
         Ok(moved)
+    }
+
+    /// The theme in use.
+    pub fn theme(&self) -> Theme {
+        self.theme
+    }
+
+    /// Uses a theme, or switches to the other for `None`, and remembers it for
+    /// the next start. Returns what to tell the user.
+    fn set_theme(&mut self, ctx: &egui::Context, choice: Option<Theme>) -> String {
+        self.theme = choice.unwrap_or(self.theme.other());
+        theme::apply(ctx, self.theme);
+        self.help_sections = help::sections(&self.registry, &self.services.calculator.functions(), self.theme);
+        let saved = match &self.settings_path {
+            Some(path) => Settings { theme: self.theme }.save(path).map_err(|error| error.to_string()),
+            None => Ok(()),
+        };
+        match saved {
+            Ok(()) => format!("{} theme", if self.theme == Theme::Dark { "Dark" } else { "Light" }),
+            Err(error) => format!("Theme changed, but it could not be saved: {error}"),
+        }
+    }
+
+    /// Turns full screen on or off, or switches it for `None`. Returns what to tell the user.
+    fn set_fullscreen(&mut self, ctx: &egui::Context, on: Option<bool>) -> String {
+        self.fullscreen = on.unwrap_or(!self.fullscreen);
+        ctx.send_viewport_cmd(ViewportCommand::Fullscreen(self.fullscreen));
+        if self.fullscreen { "Full screen. F11 or fullscreen off to leave" } else { "Full screen off" }.to_owned()
     }
 
     /// Runs a line the user typed. A command that moves the cursor returns to
@@ -210,6 +251,7 @@ impl ExcelApp {
             }
             GridAction::FocusCommandLine => self.focus = Focus::CommandLine,
             GridAction::FocusGrid => self.focus = Focus::Grid,
+            GridAction::Notice(text) => self.command_line.set_message(text),
         }
     }
 
@@ -299,6 +341,14 @@ impl ExcelApp {
         if !has_dialog && keymap::save_pressed(&ctx) {
             self.save_shortcut(&ctx);
         }
+        // The window manager can also leave full screen, so follow what it reports.
+        if let Some(fullscreen) = ctx.input(|i| i.viewport().fullscreen) {
+            self.fullscreen = fullscreen;
+        }
+        if !has_dialog && keymap::fullscreen_pressed(&ctx) {
+            let notice = self.set_fullscreen(&ctx, None);
+            self.command_line.set_message(notice);
+        }
         if !has_dialog && keymap::help_pressed(&ctx) {
             self.help.toggle();
             if !self.help.is_open() && self.focus == Focus::Help {
@@ -327,7 +377,7 @@ impl ExcelApp {
             });
 
         let help_focused = self.focus == Focus::Help && !has_dialog;
-        match excel_ui_help_panel::show(ui, &mut self.help, &self.help_sections, help_focused) {
+        match excel_ui_help_panel::show(ui, &mut self.help, &self.help_sections, &help::TABS, help_focused) {
             Some(HelpAction::FocusSearch) => self.focus = Focus::Help,
             Some(HelpAction::Leave) => self.focus = Focus::Grid,
             Some(HelpAction::Close) => {
@@ -376,7 +426,7 @@ mod tests {
     impl Harness {
         fn new(app: ExcelApp) -> Self {
             let mut harness = Self { ctx: egui::Context::default(), app, time: 0.0 };
-            crate::theme::apply(&harness.ctx);
+            crate::theme::apply(&harness.ctx, harness.app.theme);
             harness.frame(Vec::new());
             harness.frame(Vec::new());
             harness
@@ -585,15 +635,99 @@ mod tests {
         h.enter_cell("2");
         h.enter_cell("4");
         h.typed("=");
-        let every: Vec<&str> = h.app.services.calculator.functions().into_iter().map(|(name, _)| name).collect();
-        assert_eq!(h.app.grid.offered_functions(), every);
-        assert!(every.len() > 6);
+        assert!(h.app.grid.offered_functions().is_empty(), "= alone offers nothing");
         h.typed("sum");
         assert_eq!(h.app.grid.offered_functions(), ["SUM", "SUMIF", "SUMIFS"]);
         h.key(Key::Tab);
         h.typed("A1:A2)");
         h.key(Key::Enter);
         assert_eq!(h.value("A3"), CellValue::Number(6.0));
+    }
+
+    /// Whether the latest frame asked the window for full screen, and which way.
+    fn fullscreen_request(output: &egui::FullOutput) -> Option<bool> {
+        output.viewport_output.get(&egui::ViewportId::ROOT)?.commands.iter().find_map(|command| match command {
+            ViewportCommand::Fullscreen(on) => Some(*on),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn f11_and_the_fullscreen_command_switch_full_screen() {
+        let mut h = blank();
+        let press = |h: &mut Harness| {
+            let event = |pressed| Event::Key {
+                key: Key::F11,
+                physical_key: None,
+                pressed,
+                repeat: false,
+                modifiers: Modifiers::NONE,
+            };
+            h.frame(vec![event(true), event(false)])
+        };
+        assert_eq!(fullscreen_request(&press(&mut h)), Some(true));
+        assert!(h.app.fullscreen);
+        assert!(h.app.command_line.message().is_some_and(|text| text.contains("F11")));
+        assert_eq!(fullscreen_request(&press(&mut h)), Some(false));
+
+        h.run_line("fullscreen on");
+        assert!(h.app.fullscreen);
+        h.run_line("fullscreen on");
+        assert!(h.app.fullscreen, "on stays on");
+        h.run_line("fullscreen");
+        assert!(!h.app.fullscreen, "no argument switches");
+        assert_eq!(h.app.focus, Focus::CommandLine);
+    }
+
+    #[test]
+    fn the_theme_command_switches_colors_and_remembers_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("kxcel").join("settings.conf");
+        let mut h = blank();
+        h.app.settings_path = Some(path.clone());
+        assert!(h.ctx.global_style().visuals.dark_mode, "dark at first");
+
+        h.run_line("theme light");
+        h.frame(Vec::new());
+        assert_eq!(h.app.theme(), Theme::Light);
+        assert!(!h.ctx.global_style().visuals.dark_mode);
+        assert_eq!(h.app.command_line.message(), Some("Light theme"));
+        assert_eq!(Settings::load(&path).theme, Theme::Light, "remembered for the next start");
+        let function_color = h.app.help_sections[0].color;
+        assert_eq!(function_color, Some(theme::function_color(Theme::Light)));
+
+        h.run_line("theme");
+        h.frame(Vec::new());
+        assert_eq!(h.app.theme(), Theme::Dark, "no argument switches");
+        assert!(h.ctx.global_style().visuals.dark_mode);
+        assert_eq!(Settings::load(&path).theme, Theme::Dark);
+
+        h.run_line("theme blue");
+        assert_eq!(h.app.theme(), Theme::Dark);
+        assert_eq!(h.app.command_line.text(), "theme blue", "a mistake stays to be fixed");
+    }
+
+    #[test]
+    fn tab_closes_parentheses_and_says_so() {
+        let mut h = blank();
+        h.typed("=SUM(1, 2");
+        h.key(Key::Tab);
+        assert!(h.app.grid.is_editing());
+        assert!(h.app.command_line.message().is_some_and(|text| text.contains("Closed 1 parenthesis")));
+        h.key(Key::Enter);
+        assert_eq!(h.value("A1"), CellValue::Number(3.0));
+    }
+
+    #[test]
+    fn every_function_is_offered_once_its_name_is_typed() {
+        let names: Vec<&str> = Services::default().calculator.functions().into_iter().map(|(name, _)| name).collect();
+        let infos: Vec<FunctionInfo> =
+            names.iter().map(|name| FunctionInfo { name: (*name).to_owned(), help: String::new() }).collect();
+        for name in names {
+            let matching = excel_ui_grid::offered_for(&infos, &format!("={name}"));
+            assert!(matching.contains(&name), "{name} is not offered: {matching:?}");
+            assert!(matching.len() <= 8);
+        }
     }
 
     fn click(h: &mut Harness, pos: Pos2) {
@@ -627,6 +761,28 @@ mod tests {
         assert_eq!(h.app.focus, Focus::CommandLine);
         h.run_line("help so");
         assert_eq!(h.app.help.page_name(), None, "a partial name lists matches");
+    }
+
+    #[test]
+    fn help_has_tabs_and_search_finds_the_tab_with_matches() {
+        let mut h = blank();
+        h.key(Key::F1);
+        assert_eq!(h.app.help.tab(), 0, "functions first");
+        let search = h.app.help.search_rect().unwrap().center();
+        click(&mut h, search);
+        h.typed("goto");
+        assert_eq!(h.app.help.tab(), 1, "only the commands tab has a match");
+        h.key(Key::Enter);
+        assert_eq!(h.app.help.page_name(), Some("goto"));
+        h.key(Key::Escape);
+        h.key(Key::Escape);
+        assert_eq!(h.app.focus, Focus::Grid);
+
+        h.run_line("help vlookup");
+        assert_eq!((h.app.help.tab(), h.app.help.page_name()), (0, Some("VLOOKUP")));
+        h.key(Key::F1);
+        h.key(Key::F1);
+        assert_eq!(h.app.help.tab(), 0, "help opens on the last tab");
     }
 
     #[test]

@@ -24,7 +24,10 @@ pub struct HelpGroup {
 /// A titled kind of entry, such as the commands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HelpSection {
+    /// Shown above the section's groups. Empty shows no title.
     pub title: String,
+    /// The tab the section is listed under, by index.
+    pub tab: usize,
     /// Written before names and usage, such as `=` for functions.
     pub prefix: String,
     /// The color of entry names, or the theme's accent if `None`.
@@ -47,7 +50,7 @@ impl HelpSection {
             }
         }
         groups.retain(|group| !group.entries.is_empty());
-        Self { title: title.into(), prefix: String::new(), color: None, groups }
+        Self { title: title.into(), tab: 0, prefix: String::new(), color: None, groups }
     }
 }
 

@@ -22,7 +22,7 @@ use excel_model::{CellAddr, CellRange, Sheet};
 
 pub use clipboard::{parse_tsv, quote_field, to_tsv};
 pub use fill::{fill_target, shrunk_away};
-pub use function_hint::{FunctionInfo, function_prefix};
+pub use function_hint::{FunctionInfo, MAX_SHOWN, MIN_TYPED, function_prefix, offered_for};
 pub use selection::accepts_reference;
 pub use state::GridState;
 
@@ -63,6 +63,8 @@ pub enum GridAction {
     FocusCommandLine,
     /// The user clicked the grid while the command line had focus.
     FocusGrid,
+    /// Something to tell the user, such as parentheses closed by Tab.
+    Notice(String),
 }
 
 /// Draws the grid in all available space and handles its input.

@@ -21,6 +21,8 @@ pub struct HelpState {
     pub(crate) highlight: Option<usize>,
     /// A topic to open as a page once the entries are known.
     pub(crate) pending_topic: Option<String>,
+    /// The tab showing, by index. It stays when help closes and opens again.
+    pub(crate) tab: usize,
 }
 
 impl HelpState {
@@ -30,6 +32,11 @@ impl HelpState {
 
     pub fn query(&self) -> &str {
         &self.query
+    }
+
+    /// The tab showing, by index.
+    pub fn tab(&self) -> usize {
+        self.tab
     }
 
     /// The name of the entry shown in full, if any.

@@ -1,0 +1,13 @@
+[package]
+name = "excel-cmd-view"
+description = "Commands for how the window looks: full screen and theme"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+excel-model.workspace = true
+excel-command.workspace = true
+
+[dev-dependencies]
+excel-edit.workspace = true

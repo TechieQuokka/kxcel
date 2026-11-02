@@ -47,6 +47,8 @@ pub struct GridState {
     /// Where the editor drew its text in the latest frame.
     pub(crate) editor_text_rect: Option<egui::Rect>,
     pub(crate) hints: Vec<FunctionInfo>,
+    /// How many more functions match than the list shows.
+    pub(crate) hints_more: usize,
     pub(crate) hint_picked: usize,
     /// The text the current hints were offered for.
     pub(crate) hints_for: String,
@@ -76,6 +78,7 @@ impl Default for GridState {
             scroll_remainder: egui::Vec2::ZERO,
             editor_text_rect: None,
             hints: Vec::new(),
+            hints_more: 0,
             hint_picked: 0,
             hints_for: String::new(),
             hints_dismissed: false,
@@ -98,6 +101,11 @@ impl GridState {
     /// The names of the functions currently offered.
     pub fn offered_functions(&self) -> Vec<&str> {
         self.hints.iter().map(|function| function.name.as_str()).collect()
+    }
+
+    /// How many more functions match than the list shows.
+    pub fn more_functions(&self) -> usize {
+        self.hints_more
     }
 
     pub fn is_editing(&self) -> bool {

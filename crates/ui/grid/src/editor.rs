@@ -184,6 +184,18 @@ fn keys_while_editing(ui: &Ui, state: &mut GridState, actions: &mut Vec<GridActi
         state.cancel_edit();
         return;
     }
+    // Tab first closes any parentheses left open and stays, so the result can
+    // be checked before it is entered.
+    if pending_tab.is_some() {
+        let open = crate::selection::unclosed_parentheses(&state.text);
+        if open > 0 {
+            state.text.push_str(&")".repeat(open));
+            state.cursor_to_end = true;
+            let noun = if open == 1 { "parenthesis" } else { "parentheses" };
+            actions.push(GridAction::Notice(format!("Closed {open} {noun}. Press Tab or Enter to finish")));
+            return;
+        }
+    }
     let step = if enter {
         Some((if shift { -1 } else { 1 }, 0))
     } else if let Some(back) = pending_tab {

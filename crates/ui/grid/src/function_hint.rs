@@ -4,6 +4,14 @@ use egui::{Area, Frame, Id, Order, Pos2, RichText, Ui};
 
 use crate::GridState;
 
+/// The fewest letters of a name before functions are offered, so the list does
+/// not open for `=` alone or flash while a cell address such as `A1` is typed.
+/// The shortest names, `IF` and `OR`, are two letters.
+pub const MIN_TYPED: usize = 2;
+
+/// The most functions the list shows. More letters narrow it.
+pub const MAX_SHOWN: usize = 8;
+
 /// A function offered during formula entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionInfo {
@@ -30,6 +38,15 @@ pub fn function_prefix(text: &str) -> Option<&str> {
     (!token.is_empty() && token.chars().all(|c| c.is_ascii_alphabetic())).then_some(token)
 }
 
+/// The names the list offers for a cell's text, as the editor would show them.
+pub fn offered_for<'a>(functions: &'a [FunctionInfo], text: &str) -> Vec<&'a str> {
+    let Some(prefix) = function_prefix(text).filter(|prefix| prefix.chars().count() >= MIN_TYPED) else {
+        return Vec::new();
+    };
+    let prefix = prefix.to_ascii_uppercase();
+    functions.iter().map(|f| f.name.as_str()).filter(|name| name.starts_with(&prefix)).take(MAX_SHOWN).collect()
+}
+
 /// Functions whose names start with `prefix`, ignoring case.
 pub(crate) fn matching(functions: &[FunctionInfo], prefix: &str) -> Vec<FunctionInfo> {
     let prefix = prefix.to_ascii_uppercase();
@@ -45,9 +62,13 @@ impl GridState {
             self.hint_picked = 0;
         }
         self.hints = match function_prefix(&self.text) {
-            Some(prefix) if self.editing && !self.hints_dismissed => matching(functions, prefix),
+            Some(prefix) if self.editing && !self.hints_dismissed && prefix.chars().count() >= MIN_TYPED => {
+                matching(functions, prefix)
+            }
             _ => Vec::new(),
         };
+        self.hints_more = self.hints.len().saturating_sub(MAX_SHOWN);
+        self.hints.truncate(MAX_SHOWN);
         self.hint_picked = self.hint_picked.min(self.hints.len().saturating_sub(1));
     }
 
@@ -89,6 +110,9 @@ pub(crate) fn show(ui: &Ui, state: &GridState, anchor: Pos2) -> Option<usize> {
                 if ui.selectable_label(index == state.hint_picked, RichText::new(text.as_str()).monospace()).clicked() {
                     clicked = Some(index);
                 }
+            }
+            if state.hints_more > 0 {
+                ui.label(RichText::new(format!("+{} more, keep typing", state.hints_more)).small().weak());
             }
         });
     });

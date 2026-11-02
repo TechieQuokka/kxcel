@@ -44,6 +44,11 @@ impl CommandLineState {
         self.message = None;
     }
 
+    /// The message showing, if any.
+    pub fn message(&self) -> Option<&str> {
+        self.message.as_ref().map(|(text, _)| text.as_str())
+    }
+
     pub fn text(&self) -> &str {
         &self.text
     }
