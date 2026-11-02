@@ -1,0 +1,20 @@
+[package]
+name = "excel-features"
+description = "The one place features are registered"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+excel-command.workspace = true
+excel-edit.workspace = true
+excel-formula-engine.workspace = true
+excel-xlsx.workspace = true
+excel-cmd-cell.workspace = true
+excel-cmd-file.workspace = true
+excel-cmd-help.workspace = true
+excel-cmd-sort.workspace = true
+excel-cmd-find.workspace = true
+excel-cmd-navigate.workspace = true
+excel-cmd-structure.workspace = true
+excel-cmd-sheet.workspace = true

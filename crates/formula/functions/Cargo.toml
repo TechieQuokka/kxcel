@@ -1,0 +1,9 @@
+[package]
+name = "excel-formula-functions"
+description = "Built-in spreadsheet functions"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+excel-model.workspace = true

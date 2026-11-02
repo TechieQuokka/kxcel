@@ -1,0 +1,9 @@
+[package]
+name = "excel-formula-syntax"
+description = "Formula lexer, parser, and reference rewriting"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+excel-model.workspace = true

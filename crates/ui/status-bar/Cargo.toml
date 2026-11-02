@@ -1,0 +1,10 @@
+[package]
+name = "excel-ui-status-bar"
+description = "Status bar widget"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+excel-model.workspace = true
+egui.workspace = true

@@ -1,0 +1,9 @@
+[package]
+name = "excel-edit"
+description = "Reversible edits, undo history, and the open document"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+excel-model.workspace = true

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=kxcel
+Comment=Compact spreadsheet for calculation
+Exec=kxcel %f
+Icon=kxcel
+Terminal=false
+Categories=Office;Spreadsheet;
+MimeType=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;
+StartupWMClass=kxcel

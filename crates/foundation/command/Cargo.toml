@@ -1,0 +1,10 @@
+[package]
+name = "excel-command"
+description = "Command contract, registry, parsing, and service traits"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+excel-model.workspace = true
+excel-edit.workspace = true

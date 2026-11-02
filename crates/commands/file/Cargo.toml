@@ -1,0 +1,11 @@
+[package]
+name = "excel-cmd-file"
+description = "Save, quit, and open commands"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+excel-model.workspace = true
+excel-edit.workspace = true
+excel-command.workspace = true

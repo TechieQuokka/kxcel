@@ -1,0 +1,10 @@
+[package]
+name = "excel-ui-grid"
+description = "Cell grid widget"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+excel-model.workspace = true
+egui.workspace = true

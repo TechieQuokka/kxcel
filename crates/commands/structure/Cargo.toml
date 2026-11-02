@@ -1,0 +1,11 @@
+[package]
+name = "excel-cmd-structure"
+description = "Insert and delete commands"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+excel-model.workspace = true
+excel-edit.workspace = true
+excel-command.workspace = true

@@ -1,0 +1,20 @@
+[package]
+name = "excel-cli"
+description = "Headless command runner"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "kxcel-cli"
+path = "src/main.rs"
+
+[dependencies]
+excel-model.workspace = true
+excel-edit.workspace = true
+excel-command.workspace = true
+excel-features.workspace = true
+
+[dev-dependencies]
+rust_xlsxwriter.workspace = true
+tempfile.workspace = true

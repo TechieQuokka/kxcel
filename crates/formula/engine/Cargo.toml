@@ -1,0 +1,12 @@
+[package]
+name = "excel-formula-engine"
+description = "Formula evaluation and recalculation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+excel-model.workspace = true
+excel-command.workspace = true
+excel-formula-syntax.workspace = true
+excel-formula-functions.workspace = true

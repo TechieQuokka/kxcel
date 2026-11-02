@@ -1,0 +1,10 @@
+[package]
+name = "excel-ui-command-line"
+description = "Command line widget with completion"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+excel-command.workspace = true
+egui.workspace = true

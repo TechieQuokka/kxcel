@@ -1,0 +1,42 @@
+[workspace]
+resolver = "3"
+members = ["crates/*/*"]
+
+[workspace.package]
+version = "1.5.0"
+edition = "2024"
+license = "PolyForm-Noncommercial-1.0.0"
+
+[workspace.dependencies]
+excel-model = { path = "crates/foundation/model" }
+excel-edit = { path = "crates/foundation/edit" }
+excel-command = { path = "crates/foundation/command" }
+excel-formula-syntax = { path = "crates/formula/syntax" }
+excel-formula-functions = { path = "crates/formula/functions" }
+excel-formula-engine = { path = "crates/formula/engine" }
+excel-xlsx = { path = "crates/io/xlsx" }
+excel-cmd-cell = { path = "crates/commands/cell" }
+excel-cmd-help = { path = "crates/commands/help" }
+excel-cmd-file = { path = "crates/commands/file" }
+excel-cmd-sort = { path = "crates/commands/sort" }
+excel-cmd-find = { path = "crates/commands/find" }
+excel-cmd-navigate = { path = "crates/commands/navigate" }
+excel-cmd-structure = { path = "crates/commands/structure" }
+excel-cmd-sheet = { path = "crates/commands/sheet" }
+excel-ui-help-panel = { path = "crates/ui/help-panel" }
+excel-ui-grid = { path = "crates/ui/grid" }
+excel-ui-command-line = { path = "crates/ui/command-line" }
+excel-ui-status-bar = { path = "crates/ui/status-bar" }
+excel-features = { path = "crates/assembly/features" }
+excel-cli = { path = "crates/bin/cli" }
+excel-app = { path = "crates/bin/app" }
+
+calamine = "0.38.0"
+eframe = "0.37.0"
+egui = "0.37.0"
+rust_xlsxwriter = "0.102.0"
+tempfile = "3.27.0"
+zip = "9.2.2"
+
+[profile.release]
+strip = true

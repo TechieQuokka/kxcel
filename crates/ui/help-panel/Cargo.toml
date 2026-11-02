@@ -1,0 +1,9 @@
+[package]
+name = "excel-ui-help-panel"
+description = "Help side panel listing commands, functions, and keys"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+egui.workspace = true

@@ -1,0 +1,26 @@
+[package]
+name = "excel-app"
+description = "Spreadsheet GUI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "kxcel"
+path = "src/main.rs"
+
+[dependencies]
+excel-model.workspace = true
+excel-edit.workspace = true
+excel-command.workspace = true
+excel-features.workspace = true
+excel-ui-grid.workspace = true
+excel-ui-help-panel.workspace = true
+excel-ui-command-line.workspace = true
+excel-ui-status-bar.workspace = true
+eframe.workspace = true
+egui.workspace = true
+
+[dev-dependencies]
+rust_xlsxwriter.workspace = true
+tempfile.workspace = true
