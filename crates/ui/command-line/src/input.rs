@@ -9,7 +9,7 @@ const HINT: &str = "Press Ctrl+L for commands";
 /// Something the user did in the command line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandLineAction {
-    /// Run this line, then return to the grid.
+    /// Run this line. The host decides where the keyboard goes next.
     Submit(String),
     /// Return to the grid.
     Leave,
@@ -89,7 +89,7 @@ pub fn show(
 
 /// Handles keys the text box would otherwise act on.
 fn keys_before_text_input(ui: &Ui, state: &mut CommandLineState) -> Option<CommandLineAction> {
-    let has_candidates = !state.candidates.is_empty();
+    let has_candidates = !state.items.is_empty();
     ui.input_mut(|i| {
         if i.consume_key(Modifiers::NONE, Key::Escape) {
             state.take_line();

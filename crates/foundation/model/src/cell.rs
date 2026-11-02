@@ -1,4 +1,4 @@
-use crate::{CellError, CellValue};
+use crate::{CellError, CellValue, format_date, parse_date};
 
 /// What the user entered into a cell.
 #[derive(Debug, Clone, PartialEq)]
@@ -6,6 +6,15 @@ pub enum CellInput {
     Literal(CellValue),
     /// Formula text without the leading `=`.
     Formula(String),
+}
+
+/// How a number is shown. The value stays a number either way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NumberFormat {
+    #[default]
+    General,
+    /// A serial day number shown as `YYYY-MM-DD`.
+    Date,
 }
 
 /// A stored cell: what was entered, and the value it currently shows.
@@ -16,16 +25,24 @@ pub struct Cell {
     /// True when the formula could not be calculated, so `value` is the stored
     /// result from the file rather than a fresh one.
     pub uncalculated: bool,
+    /// How a number value is shown. A formula's is set by the engine from what
+    /// the formula gives.
+    pub format: NumberFormat,
 }
 
 impl Cell {
     pub fn literal(value: CellValue) -> Self {
-        Self { input: CellInput::Literal(value.clone()), value, uncalculated: false }
+        Self { input: CellInput::Literal(value.clone()), value, uncalculated: false, format: NumberFormat::General }
+    }
+
+    /// A date, given as its serial day number.
+    pub fn date(serial: f64) -> Self {
+        Self { format: NumberFormat::Date, ..Self::literal(CellValue::Number(serial)) }
     }
 
     /// Builds a formula cell. `formula` has no leading `=`.
     pub fn formula(formula: impl Into<String>, value: CellValue) -> Self {
-        Self { input: CellInput::Formula(formula.into()), value, uncalculated: false }
+        Self { input: CellInput::Formula(formula.into()), value, uncalculated: false, format: NumberFormat::General }
     }
 
     /// Interprets text typed by the user. Returns `None` for blank text.
@@ -40,6 +57,9 @@ impl Cell {
         if let Some(number) = parse_number(trimmed) {
             return Some(Self::literal(CellValue::Number(number)));
         }
+        if let Some(serial) = parse_date(trimmed) {
+            return Some(Self::date(serial));
+        }
         if trimmed.eq_ignore_ascii_case("TRUE") {
             return Some(Self::literal(CellValue::Bool(true)));
         }
@@ -52,11 +72,24 @@ impl Cell {
         Some(Self::literal(CellValue::Text(text.to_owned())))
     }
 
-    /// The text to show when editing this cell.
+    /// The text to show when editing this cell. A date shows as a date, so
+    /// editing it keeps it one.
     pub fn input_text(&self) -> String {
         match &self.input {
-            CellInput::Literal(value) => value.to_string(),
+            CellInput::Literal(value) => self.shown(value),
             CellInput::Formula(formula) => format!("={formula}"),
+        }
+    }
+
+    /// The value as the cell shows it, following its format.
+    pub fn display(&self) -> String {
+        self.shown(&self.value)
+    }
+
+    fn shown(&self, value: &CellValue) -> String {
+        match (self.format, value) {
+            (NumberFormat::Date, CellValue::Number(n)) => format_date(*n).unwrap_or_else(|| value.to_string()),
+            _ => value.to_string(),
         }
     }
 
@@ -107,6 +140,17 @@ mod tests {
         let cell = Cell::parse_input("=A1+1").unwrap();
         assert_eq!(cell.formula_text(), Some("A1+1"));
         assert_eq!(cell.input_text(), "=A1+1");
+    }
+
+    #[test]
+    fn typed_dates_become_dates_and_edit_as_dates() {
+        let cell = Cell::parse_input("2026/11/2").unwrap();
+        assert_eq!(cell.value, CellValue::Number(46_328.0));
+        assert_eq!(cell.format, NumberFormat::Date);
+        assert_eq!(cell.display(), "2026-11-02");
+        assert_eq!(cell.input_text(), "2026-11-02");
+        assert_eq!(Cell::parse_input("46328").unwrap().display(), "46328", "a plain number stays one");
+        assert_eq!(Cell::date(-5.0).display(), "-5", "a number outside the date range shows as a number");
     }
 
     #[test]

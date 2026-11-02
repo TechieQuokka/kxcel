@@ -1,4 +1,5 @@
 use excel_command::{Command, CommandError, Context, Structural};
+use excel_model::Doc;
 
 use crate::target::{Target, apply};
 
@@ -9,8 +10,21 @@ impl Command for Insert {
         "insert"
     }
 
-    fn help(&self) -> &str {
-        "Insert rows or columns: insert row 3 2, insert col C"
+    fn doc(&self) -> Doc {
+        Doc {
+            category: "Edit",
+            summary: "Insert rows or columns",
+            usage: "insert <row|col> [position] [count]",
+            description: "Inserts empty rows or columns and shifts the rest down or right. Formulas are \
+                          adjusted to keep pointing at the same cells.",
+            args: &[
+                ("row|col", "Whether to insert rows or columns"),
+                ("position", "Optional. A row number or column letter. The cursor's by default"),
+                ("count", "Optional. How many. 1 by default"),
+            ],
+            examples: &[("insert row 3 2", ""), ("insert col C", "")],
+            related: &["delete"],
+        }
     }
 
     fn run(&self, ctx: &mut Context<'_>, args: &[&str]) -> Result<(), CommandError> {

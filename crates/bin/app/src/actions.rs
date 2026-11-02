@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use excel_command::Calculator;
 use excel_edit::{CellChange, Document, Edit};
-use excel_model::{Cell, CellAddr, CellInput, CellRange};
+use excel_model::{Cell, CellAddr, CellInput, CellRange, NumberFormat};
 use excel_ui_grid::{parse_tsv, to_tsv};
 
 use crate::series;
@@ -40,7 +40,16 @@ pub fn fill(doc: &mut Document, calculator: &dyn Calculator, source: CellRange, 
             let line = (source.start.col..=source.end.col).map(|col| sheet.get(CellAddr::new(addr.row, col))).collect();
             (line, i64::from(addr.col) - i64::from(source.start.col))
         };
-        if let Some(cell) = series::detect(&line, alternate).and_then(|series| series.cell_at(position)) {
+        // As in Excel, a single date counts up a day at a time, and Ctrl copies it.
+        let single_date = matches!(line[..], [Some(cell)] if cell.format == NumberFormat::Date);
+        let alternate = alternate != single_date;
+        if let Some(mut cell) = series::detect(&line, alternate).and_then(|series| series.cell_at(position)) {
+            // A series of dates continues as dates.
+            if let Some(Some(first)) = line.first()
+                && line.iter().all(|other| other.is_some_and(|other| other.format == first.format))
+            {
+                cell.format = first.format;
+            }
             changes.insert(addr, Some(cell));
             continue;
         }
@@ -150,7 +159,9 @@ fn apply(doc: &mut Document, calculator: &dyn Calculator, changes: BTreeMap<Cell
         return;
     }
     doc.apply(Edit::SetCells(changes));
-    calculator.recalculate(&mut doc.workbook);
+    if let Some(edit) = doc.history.last_undo() {
+        calculator.update(&mut doc.workbook, edit);
+    }
 }
 
 #[cfg(test)]
@@ -227,6 +238,21 @@ mod tests {
         assert_eq!(values(&f, &["A2", "A3"]), ["7", "7"]);
         fill(&mut f.doc, &f.services.calculator, range("A1"), range("A1:A3"), true);
         assert_eq!(values(&f, &["A2", "A3"]), ["8", "9"]);
+    }
+
+    #[test]
+    fn dates_fill_as_dates_and_a_single_date_counts_days() {
+        let mut f = Fixture::new(&[("A1", "2026-01-30"), ("B1", "2026-01-01"), ("B2", "2026-01-08")]);
+        fill(&mut f.doc, &f.services.calculator, range("A1"), range("A1:A3"), false);
+        assert_eq!(displays(&f, &["A2", "A3"]), ["2026-01-31", "2026-02-01"]);
+        fill(&mut f.doc, &f.services.calculator, range("A1"), range("A1:A3"), true);
+        assert_eq!(displays(&f, &["A2", "A3"]), ["2026-01-30", "2026-01-30"], "ctrl copies");
+        fill(&mut f.doc, &f.services.calculator, range("B1:B2"), range("B1:B4"), false);
+        assert_eq!(displays(&f, &["B3", "B4"]), ["2026-01-15", "2026-01-22"], "a week apart continues weekly");
+    }
+
+    fn displays(f: &Fixture, addrs: &[&str]) -> Vec<String> {
+        addrs.iter().map(|at| f.doc.workbook.active().display(addr(at))).collect()
     }
 
     #[test]

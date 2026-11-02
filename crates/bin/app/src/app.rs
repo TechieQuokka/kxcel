@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use egui::{CentralPanel, Frame, Panel, Ui, ViewportCommand};
-use excel_command::{Calculator, CommandRegistry, Context, Effect};
+use excel_command::{Calculator, CommandError, CommandRegistry, Context, Effect};
 use excel_edit::Document;
 use excel_features::{Services, registry};
 use excel_ui_command_line::{CommandLineAction, CommandLineState};
@@ -9,11 +9,22 @@ use excel_ui_grid::{FunctionInfo, GridAction, GridState};
 use excel_ui_help_panel::{HelpAction, HelpSection, HelpState};
 
 use crate::actions::{self, CopiedCells};
-use crate::dialogs::{self, Choice, Dialog};
+use crate::dialogs::{self, Dialog};
 use crate::{help, keymap};
 
 const COMMAND_LINE_HEIGHT: f32 = 30.0;
 const STATUS_BAR_HEIGHT: f32 = 26.0;
+
+/// How running command lines ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ran {
+    /// Every line ran. `moved` says whether one moved the cursor.
+    Done { moved: bool },
+    /// A line stopped to ask, and a dialog is open.
+    Asked,
+    /// A line failed, and its error is showing.
+    Failed,
+}
 
 /// Which area receives the keyboard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,10 +66,10 @@ impl ExcelApp {
             .calculator
             .functions()
             .into_iter()
-            .map(|(name, help)| FunctionInfo { name: name.to_owned(), help: help.to_owned() })
+            .map(|(name, doc)| FunctionInfo { name: name.to_owned(), help: format!("{}  {}", doc.usage, doc.summary) })
             .collect();
         let registry = registry();
-        let help_sections = help::sections(&registry, &functions);
+        let help_sections = help::sections(&registry, &services.calculator.functions());
         Self {
             services,
             registry,
@@ -76,7 +87,32 @@ impl ExcelApp {
         }
     }
 
-    fn run_command(&mut self, ctx: &egui::Context, line: &str) -> bool {
+    /// Runs command lines in order, stopping at the first that fails or asks to
+    /// confirm. A question opens a dialog that carries the remaining lines.
+    fn run_lines(&mut self, ctx: &egui::Context, lines: Vec<String>) -> Ran {
+        let mut moved = false;
+        let mut lines = lines.into_iter();
+        while let Some(line) = lines.next() {
+            match self.run_command(ctx, &line) {
+                Ok(cursor_moved) => moved |= cursor_moved,
+                Err(error) => match error.confirmation {
+                    Some(confirmation) => {
+                        self.command_line.clear_message();
+                        self.dialog = Some(Dialog::Confirm { confirmation, then: lines.collect() });
+                        return Ran::Asked;
+                    }
+                    None => {
+                        self.command_line.set_error(error.to_string());
+                        return Ran::Failed;
+                    }
+                },
+            }
+        }
+        Ran::Done { moved }
+    }
+
+    /// Runs one command line and applies its effects. Returns whether it moved the cursor.
+    fn run_command(&mut self, ctx: &egui::Context, line: &str) -> Result<bool, CommandError> {
         let mut command = Context::new(&mut self.doc, &self.services.calculator, &self.services.store);
         command.cursor = self.grid.cursor;
         command.selection = self.grid.selection();
@@ -84,9 +120,13 @@ impl ExcelApp {
         let message = command.message.take();
         let effects = std::mem::take(&mut command.effects);
 
+        let mut moved = false;
         for effect in effects {
             match effect {
-                Effect::MoveCursor(addr) => self.grid.go_to(addr),
+                Effect::MoveCursor(addr) => {
+                    self.grid.go_to(addr);
+                    moved = true;
+                }
                 Effect::Quit => {
                     self.allow_close = true;
                     ctx.send_viewport_cmd(ViewportCommand::Close);
@@ -103,18 +143,39 @@ impl ExcelApp {
             }
         }
 
-        match result {
-            Ok(()) => {
-                match message {
-                    Some(message) => self.command_line.set_message(message),
-                    None => self.command_line.clear_message(),
-                }
-                true
+        result?;
+        match message {
+            Some(message) => self.command_line.set_message(message),
+            None => self.command_line.clear_message(),
+        }
+        Ok(moved)
+    }
+
+    /// Runs a line the user typed. A command that moves the cursor returns to
+    /// the grid, and anything else stays in the command line. A failed line is
+    /// put back so it can be fixed.
+    fn submit(&mut self, ctx: &egui::Context, line: String) {
+        match self.run_lines(ctx, vec![line.clone()]) {
+            Ran::Done { moved } => self.focus = if moved { Focus::Grid } else { Focus::CommandLine },
+            Ran::Asked => self.focus = Focus::CommandLine,
+            Ran::Failed => {
+                self.command_line.set_text(line);
+                self.focus = Focus::CommandLine;
             }
-            Err(error) => {
-                self.command_line.set_error(error.to_string());
-                false
-            }
+        }
+    }
+
+    /// Saves from the shortcut. A document without a file name gets a `save `
+    /// line to type one into.
+    fn save_shortcut(&mut self, ctx: &egui::Context) {
+        if self.doc.path.is_none() {
+            self.command_line.set_text("save ");
+            self.command_line.set_message("Type a file name to save to");
+            self.focus = Focus::CommandLine;
+            return;
+        }
+        if self.run_lines(ctx, vec!["save".into()]) == Ran::Failed {
+            self.focus = Focus::CommandLine;
         }
     }
 
@@ -134,13 +195,17 @@ impl ExcelApp {
                 self.doc.dirty = true;
             }
             GridAction::Undo => {
-                if self.doc.undo() {
-                    self.services.calculator.recalculate(&mut self.doc.workbook);
+                if self.doc.undo()
+                    && let Some(edit) = self.doc.history.last_redo()
+                {
+                    self.services.calculator.update(&mut self.doc.workbook, edit);
                 }
             }
             GridAction::Redo => {
-                if self.doc.redo() {
-                    self.services.calculator.recalculate(&mut self.doc.workbook);
+                if self.doc.redo()
+                    && let Some(edit) = self.doc.history.last_undo()
+                {
+                    self.services.calculator.update(&mut self.doc.workbook, edit);
                 }
             }
             GridAction::FocusCommandLine => self.focus = Focus::CommandLine,
@@ -154,12 +219,14 @@ impl ExcelApp {
         ctx.copy_text(text);
     }
 
-    /// Stops a close with unsaved changes and asks first.
+    /// Stops a close with unsaved changes and asks first, as `exit` does.
     fn intercept_close(&mut self, ctx: &egui::Context) {
         let requested = ctx.input(|i| i.viewport().close_requested());
         if requested && self.doc.dirty && !self.allow_close {
             ctx.send_viewport_cmd(ViewportCommand::CancelClose);
-            self.dialog = Some(Dialog::UnsavedChanges);
+            if self.dialog.is_none() {
+                self.run_lines(ctx, vec!["exit".into()]);
+            }
         }
     }
 
@@ -167,25 +234,15 @@ impl ExcelApp {
         let Some(dialog) = &self.dialog else {
             return;
         };
-        let was_unsaved = *dialog == Dialog::UnsavedChanges;
         let Some(choice) = dialogs::show(ctx, dialog) else {
             return;
         };
+        let lines = dialogs::lines_for(dialog, choice);
         self.dialog = None;
-        match choice {
-            Choice::Dismiss => {}
-            Choice::DiscardAndClose => {
-                self.allow_close = true;
-                ctx.send_viewport_cmd(ViewportCommand::Close);
-            }
-            Choice::SaveAndClose if was_unsaved => {
-                // A refused or failed save shows its reason, and the window stays open.
-                if self.run_command(ctx, "w") {
-                    self.allow_close = true;
-                    ctx.send_viewport_cmd(ViewportCommand::Close);
-                }
-            }
-            Choice::SaveAndClose => {}
+        match self.run_lines(ctx, lines) {
+            Ran::Done { moved: true } => self.focus = Focus::Grid,
+            Ran::Failed => self.focus = Focus::CommandLine,
+            Ran::Done { moved: false } | Ran::Asked => {}
         }
     }
 
@@ -240,7 +297,7 @@ impl ExcelApp {
 
         let has_dialog = self.dialog.is_some();
         if !has_dialog && keymap::save_pressed(&ctx) {
-            self.run_command(&ctx, "w");
+            self.save_shortcut(&ctx);
         }
         if !has_dialog && keymap::help_pressed(&ctx) {
             self.help.toggle();
@@ -291,10 +348,7 @@ impl ExcelApp {
         }
 
         match command_action {
-            Some(CommandLineAction::Submit(line)) => {
-                self.focus = Focus::Grid;
-                self.run_command(&ctx, &line);
-            }
+            Some(CommandLineAction::Submit(line)) => self.submit(&ctx, line),
             Some(CommandLineAction::Leave) => self.focus = Focus::Grid,
             Some(CommandLineAction::Focus) => self.focus = Focus::CommandLine,
             None => {}
@@ -364,6 +418,10 @@ mod tests {
         }
 
         fn run_line(&mut self, line: &str) {
+            if self.app.focus == Focus::CommandLine {
+                // Leaving discards a line put back after a failure.
+                self.key(Key::Escape);
+            }
             self.key_with(Key::L, Modifiers::COMMAND);
             self.typed(line);
             self.key(Key::Enter);
@@ -409,7 +467,7 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_l_runs_a_command_and_returns_to_the_grid() {
+    fn a_command_that_moves_the_cursor_returns_to_the_grid() {
         let mut h = blank();
         h.run_line("goto C5");
         assert_eq!(h.app.grid.cursor.to_string(), "C5");
@@ -424,7 +482,33 @@ mod tests {
         let mut h = blank();
         h.run_line(":goto C5");
         assert_eq!(h.app.grid.cursor.to_string(), "A1");
+    }
+
+    #[test]
+    fn other_commands_stay_in_the_command_line() {
+        let mut h = blank();
+        h.run_line("set A1 5");
+        assert_eq!(h.app.focus, Focus::CommandLine);
         assert_eq!(h.app.command_line.text(), "");
+        h.typed("set A2 =A1*2");
+        h.key(Key::Enter);
+        assert_eq!(h.value("A2"), CellValue::Number(10.0));
+        assert!(!h.app.grid.is_editing());
+    }
+
+    #[test]
+    fn a_failed_command_stays_with_its_line_to_fix() {
+        let mut h = blank();
+        h.run_line("goto ZZZ");
+        assert_eq!(h.app.focus, Focus::CommandLine);
+        assert_eq!(h.app.command_line.text(), "goto ZZZ");
+        for _ in 0..3 {
+            h.key(Key::Backspace);
+        }
+        h.typed("C3");
+        h.key(Key::Enter);
+        assert_eq!(h.app.grid.cursor.to_string(), "C3");
+        assert_eq!(h.app.focus, Focus::Grid);
     }
 
     #[test]
@@ -501,8 +585,11 @@ mod tests {
         h.enter_cell("2");
         h.enter_cell("4");
         h.typed("=");
-        assert_eq!(h.app.grid.offered_functions(), ["AVERAGE", "COUNT", "IF", "MAX", "MIN", "SUM"]);
-        h.typed("su");
+        let every: Vec<&str> = h.app.services.calculator.functions().into_iter().map(|(name, _)| name).collect();
+        assert_eq!(h.app.grid.offered_functions(), every);
+        assert!(every.len() > 6);
+        h.typed("sum");
+        assert_eq!(h.app.grid.offered_functions(), ["SUM", "SUMIF", "SUMIFS"]);
         h.key(Key::Tab);
         h.typed("A1:A2)");
         h.key(Key::Enter);
@@ -536,7 +623,35 @@ mod tests {
         h.run_line("help sort");
         assert!(h.app.help.is_open());
         assert_eq!(h.app.help.query(), "sort");
+        assert_eq!(h.app.help.page_name(), Some("sort"), "an exact name opens its page");
+        assert_eq!(h.app.focus, Focus::CommandLine);
+        h.run_line("help so");
+        assert_eq!(h.app.help.page_name(), None, "a partial name lists matches");
+    }
+
+    #[test]
+    fn help_pages_open_with_the_keyboard_and_escape_goes_back() {
+        let mut h = blank();
+        h.key(Key::F1);
+        let search = h.app.help.search_rect().unwrap().center();
+        click(&mut h, search);
+        h.typed("goto");
+        h.key(Key::Enter);
+        assert_eq!(h.app.help.page_name(), Some("goto"), "a single match opens with Enter");
+        h.key(Key::Escape);
+        assert_eq!(h.app.help.page_name(), None);
+        assert_eq!(h.app.focus, Focus::Help, "the first escape only goes back");
+
+        h.key_with(Key::A, Modifiers::COMMAND);
+        h.typed("m");
+        h.key(Key::ArrowDown);
+        h.key(Key::ArrowDown);
+        h.key(Key::Enter);
+        assert!(h.app.help.page_name().is_some(), "arrows pick among several matches");
+        h.key(Key::Escape);
+        h.key(Key::Escape);
         assert_eq!(h.app.focus, Focus::Grid);
+        assert!(h.app.help.is_open());
     }
 
     #[test]
@@ -668,25 +783,157 @@ mod tests {
         h.key(Key::Delete);
         assert_eq!(h.value("A1"), CellValue::Empty);
         h.run_line("nope");
-        assert_eq!(h.app.focus, Focus::Grid);
+        assert_eq!(h.app.focus, Focus::CommandLine);
         let mut ctx = Context::new(&mut h.app.doc, &h.app.services.calculator, &h.app.services.store);
         assert!(h.app.registry.execute("nope", &mut ctx).is_err());
     }
 
     #[test]
-    fn ctrl_s_saves_and_quit_refuses_unsaved_changes() {
+    fn ctrl_s_saves_and_exit_asks_about_unsaved_changes() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("t.xlsx");
         let mut h = Harness::new(ExcelApp::new(Some(path.clone())));
         h.enter_cell("1");
-        assert!(h.app.doc.dirty);
-        h.run_line("q");
-        assert!(!h.app.allow_close, "unsaved changes block quitting");
+        h.run_line("exit");
+        assert!(!h.app.allow_close, "unsaved changes block exiting");
+        assert!(matches!(h.app.dialog, Some(Dialog::Confirm { .. })));
+        h.key(Key::Escape);
+        assert!(h.app.dialog.is_none() && !h.app.allow_close, "escape cancels");
+
         h.key_with(Key::S, Modifiers::COMMAND);
         assert!(path.exists());
         assert!(!h.app.doc.dirty);
-        h.run_line("q");
+        h.run_line("exit");
         assert!(h.app.allow_close);
+    }
+
+    /// Answers the open dialog as if a button was clicked.
+    fn answer(h: &mut Harness, choice: dialogs::Choice) {
+        let dialog = h.app.dialog.clone().expect("a dialog is open");
+        let lines = dialogs::lines_for(&dialog, choice);
+        h.app.dialog = None;
+        let ctx = h.ctx.clone();
+        h.app.run_lines(&ctx, lines);
+        h.frame(Vec::new());
+    }
+
+    #[test]
+    fn the_exit_dialog_can_save_first_or_discard() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.xlsx");
+        let mut h = Harness::new(ExcelApp::new(Some(path.clone())));
+        h.enter_cell("1");
+        h.run_line("exit");
+        answer(&mut h, dialogs::Choice::Save);
+        assert!(path.exists() && h.app.allow_close);
+
+        let mut h = blank();
+        h.enter_cell("1");
+        h.run_line("exit");
+        answer(&mut h, dialogs::Choice::Proceed);
+        assert!(h.app.allow_close, "don't save exits");
+    }
+
+    #[test]
+    fn closing_the_window_asks_like_exit() {
+        let mut h = blank();
+        h.enter_cell("1");
+        h.time += 0.1;
+        let mut input = RawInput {
+            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), WINDOW)),
+            time: Some(h.time),
+            ..Default::default()
+        };
+        let info = egui::ViewportInfo { events: vec![egui::ViewportEvent::Close], ..Default::default() };
+        input.viewports.insert(egui::ViewportId::ROOT, info);
+        let app = &mut h.app;
+        let mut output = h.ctx.run_ui(input, |ui| app.show(ui));
+        output.textures_delta.clear();
+        let commands = &output.viewport_output[&egui::ViewportId::ROOT].commands;
+        assert!(commands.contains(&ViewportCommand::CancelClose));
+        assert!(matches!(
+            &h.app.dialog,
+            Some(Dialog::Confirm { confirmation: excel_command::Confirmation::UnsavedChanges { action, .. }, .. })
+                if action == "closing"
+        ));
+    }
+
+    #[test]
+    fn open_asks_about_unsaved_changes_then_opens() {
+        let dir = tempfile::tempdir().unwrap();
+        let other = dir.path().join("other file.xlsx");
+        rust_xlsxwriter::Workbook::new().save(&other).unwrap();
+        let mut h = blank();
+        h.enter_cell("1");
+        h.run_line(&format!("open \"{}\"", other.display()));
+        assert!(matches!(h.app.dialog, Some(Dialog::Confirm { .. })));
+        assert_eq!(h.value("A1"), CellValue::Number(1.0), "nothing happens before an answer");
+        answer(&mut h, dialogs::Choice::Proceed);
+        assert_eq!(h.app.doc.path.as_deref(), Some(other.as_path()));
+        assert_eq!(h.value("A1"), CellValue::Empty);
+        assert_eq!(h.app.focus, Focus::CommandLine);
+    }
+
+    #[test]
+    fn saving_over_lost_content_asks_and_save_first_chains_through_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("styled.xlsx");
+        let mut writer = rust_xlsxwriter::Workbook::new();
+        let bold = rust_xlsxwriter::Format::new().set_bold();
+        writer.add_worksheet().write_number_with_format(0, 0, 1.0, &bold).unwrap();
+        writer.save(&path).unwrap();
+
+        let mut h = Harness::new(ExcelApp::new(Some(path.clone())));
+        h.key(Key::Escape);
+        h.enter_cell("2");
+        h.run_line("exit");
+        answer(&mut h, dialogs::Choice::Save);
+        assert!(
+            matches!(&h.app.dialog, Some(Dialog::Confirm { confirmation: excel_command::Confirmation::Loss { .. }, then }) if then == &["exit!"]),
+            "{:?}",
+            h.app.dialog
+        );
+        assert!(!h.app.allow_close);
+        answer(&mut h, dialogs::Choice::Proceed);
+        assert!(h.app.allow_close && !h.app.doc.dirty);
+    }
+
+    #[test]
+    fn tab_completes_a_file_path_to_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("매출 2026.xlsx");
+        let mut writer = rust_xlsxwriter::Workbook::new();
+        writer.add_worksheet().write_number(0, 0, 42.0).unwrap();
+        writer.save(&file).unwrap();
+
+        let mut h = blank();
+        h.key_with(Key::L, Modifiers::COMMAND);
+        h.typed(&format!("open {}/매", dir.path().display()));
+        assert_eq!(h.app.command_line.offered(), ["매출 2026.xlsx"]);
+        h.key(Key::Tab);
+        assert_eq!(h.app.command_line.text(), format!("open \"{}\"", file.display()));
+        h.key(Key::Enter);
+        assert_eq!(h.value("A1"), CellValue::Number(42.0));
+    }
+
+    #[test]
+    fn saving_a_bare_name_adds_xlsx() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut h = blank();
+        h.enter_cell("1");
+        h.run_line(&format!("save {}/report", dir.path().display()));
+        assert!(dir.path().join("report.xlsx").exists());
+        assert!(!h.app.doc.dirty);
+    }
+
+    #[test]
+    fn ctrl_s_without_a_file_name_asks_for_one() {
+        let mut h = blank();
+        h.enter_cell("1");
+        h.key_with(Key::S, Modifiers::COMMAND);
+        assert_eq!(h.app.focus, Focus::CommandLine);
+        assert_eq!(h.app.command_line.text(), "save ");
+        assert!(h.app.doc.dirty);
     }
 
     #[test]

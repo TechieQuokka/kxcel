@@ -1,11 +1,24 @@
-use excel_model::{CellAddr, CellValue};
-use rust_xlsxwriter::{Formula, Worksheet, XlsxError};
+use excel_model::{CellAddr, CellValue, NumberFormat};
+use rust_xlsxwriter::{Format, Formula, Worksheet, XlsxError};
+
+/// The format dates are written with.
+pub(super) fn date_format() -> Format {
+    Format::new().set_num_format("yyyy-mm-dd")
+}
 
 /// Writes a literal value.
-pub(super) fn write_value(target: &mut Worksheet, addr: CellAddr, value: &CellValue) -> Result<(), XlsxError> {
+pub(super) fn write_value(
+    target: &mut Worksheet,
+    addr: CellAddr,
+    value: &CellValue,
+    format: NumberFormat,
+) -> Result<(), XlsxError> {
     let (row, col) = (addr.row, addr.col as u16);
     match value {
         CellValue::Empty => {}
+        CellValue::Number(n) if format == NumberFormat::Date => {
+            target.write_number_with_format(row, col, *n, &date_format())?;
+        }
         CellValue::Number(n) => {
             target.write_number(row, col, *n)?;
         }

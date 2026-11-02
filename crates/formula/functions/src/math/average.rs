@@ -1,4 +1,4 @@
-use excel_model::{CellError, CellValue};
+use excel_model::{CellError, CellValue, Doc};
 
 use super::numbers;
 use crate::{Arg, Function};
@@ -10,8 +10,17 @@ impl Function for Average {
         "AVERAGE"
     }
 
-    fn help(&self) -> &'static str {
-        "AVERAGE(values...)  Average of numbers"
+    fn doc(&self) -> Doc {
+        Doc {
+            category: "Math",
+            summary: "Average of numbers",
+            usage: "AVERAGE(values...)",
+            description: "The sum of the numbers divided by how many there are. In ranges, text and empty \
+                          cells are skipped. With no numbers, the result is #DIV/0!.",
+            args: &[("values", "Numbers, cells, or ranges, separated by commas")],
+            examples: &[("=AVERAGE(2, 4, 9)", "5"), ("=AVERAGE(B2:B20)", "")],
+            related: &["SUM", "COUNT"],
+        }
     }
 
     fn call(&self, args: &[Arg]) -> CellValue {

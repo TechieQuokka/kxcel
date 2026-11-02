@@ -1,5 +1,6 @@
 use excel_command::{Command, CommandError, Context, Effect};
 use excel_model::CellAddr;
+use excel_model::Doc;
 
 pub(crate) struct Goto;
 
@@ -8,8 +9,16 @@ impl Command for Goto {
         "goto"
     }
 
-    fn help(&self) -> &str {
-        "Move to a cell: goto B5"
+    fn doc(&self) -> Doc {
+        Doc {
+            category: "Navigate",
+            summary: "Move to a cell",
+            usage: "goto <cell>",
+            args: &[("cell", "The cell, such as B5")],
+            examples: &[("goto B5", ""), ("goto A100000", "")],
+            related: &["find", "sheet"],
+            ..Doc::BLANK
+        }
     }
 
     fn run(&self, ctx: &mut Context<'_>, args: &[&str]) -> Result<(), CommandError> {

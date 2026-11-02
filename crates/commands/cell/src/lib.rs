@@ -2,6 +2,7 @@
 
 use excel_command::{Command, CommandError, CommandRegistry, Context};
 use excel_edit::{CellChange, Edit};
+use excel_model::Doc;
 use excel_model::{Cell, CellAddr};
 
 pub fn register(registry: &mut CommandRegistry) {
@@ -15,18 +16,33 @@ impl Command for Set {
         "set"
     }
 
-    fn help(&self) -> &str {
-        "Set a cell: set B5 =A1*2"
+    fn doc(&self) -> Doc {
+        Doc {
+            category: "Edit",
+            summary: "Set a cell's value or formula",
+            usage: "set <cell> <value>",
+            description: "Writes to a cell as if it were typed there, so a value starting with = is a formula. \
+                          Mostly useful in kxcel-cli, which has no grid to type into.",
+            args: &[("cell", "The cell, such as B5"), ("value", "A number, text, or =formula. The rest of the line")],
+            examples: &[("set B5 =A1*2", ""), ("set A1 사과", "")],
+            related: &["goto"],
+        }
+    }
+
+    fn takes_raw_line(&self) -> bool {
+        true
     }
 
     fn run(&self, ctx: &mut Context<'_>, args: &[&str]) -> Result<(), CommandError> {
-        let [address, rest @ ..] = args else {
+        let line = args.join(" ");
+        let (address, value) = line.split_once(char::is_whitespace).unwrap_or((&line, ""));
+        if address.is_empty() {
             return Err(CommandError::new("Usage: set <cell> <value>"));
-        };
+        }
         let addr: CellAddr = address.parse().map_err(CommandError::new)?;
         let sheet = ctx.doc.workbook.active_index();
         let before = ctx.doc.workbook.active().get(addr).cloned();
-        let after = Cell::parse_input(&rest.join(" "));
+        let after = Cell::parse_input(value.trim_start());
         ctx.apply(Edit::SetCells(vec![CellChange { sheet, addr, before, after }]));
         Ok(())
     }

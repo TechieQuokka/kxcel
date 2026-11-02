@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 
 use excel_command::{Calculator, Command, CommandError, Context};
 use excel_edit::Edit;
+use excel_model::Doc;
 use excel_model::{Cell, CellAddr, CellInput, CellRange, CellValue, Sheet, col_from_name};
 
 pub(crate) struct Sort;
@@ -13,8 +14,22 @@ impl Command for Sort {
         "sort"
     }
 
-    fn help(&self) -> &str {
-        "Sort the selection or sheet: sort B desc header"
+    fn doc(&self) -> Doc {
+        Doc {
+            category: "Edit",
+            summary: "Sort rows by a column",
+            usage: "sort <column> [desc] [header]",
+            description: "Sorts the selection if it spans several cells, otherwise every used row. Numbers \
+                          come before text, then booleans and errors, and empty cells always go last. \
+                          Formulas move with their rows.",
+            args: &[
+                ("column", "The column to sort by, such as B"),
+                ("desc", "Optional. Largest first"),
+                ("header", "Optional. Keeps the first row in place"),
+            ],
+            examples: &[("sort B", ""), ("sort C desc header", "")],
+            ..Doc::BLANK
+        }
     }
 
     fn run(&self, ctx: &mut Context<'_>, args: &[&str]) -> Result<(), CommandError> {

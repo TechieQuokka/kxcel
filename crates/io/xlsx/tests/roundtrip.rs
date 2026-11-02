@@ -118,3 +118,37 @@ fn an_invalid_sheet_name_fails_without_touching_the_existing_file() {
     assert!(XlsxStore.save(&bad, &path).is_err());
     assert_eq!(XlsxStore.load(&path).unwrap().workbook, good);
 }
+
+#[test]
+fn dates_stay_dates_and_lose_nothing() {
+    let book = one_sheet(vec![("A1", Cell::date(46_328.0)), ("B1", Cell::literal(CellValue::Number(46_328.0)))]);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("t.xlsx");
+    XlsxStore.save(&book, &path).unwrap();
+    let loaded = XlsxStore.load(&path).unwrap();
+    assert_eq!(loaded.workbook, book);
+    assert_eq!(loaded.workbook.active().display("A1".parse().unwrap()), "2026-11-02");
+    assert!(loaded.loss_warnings.is_empty(), "{:?}", loaded.loss_warnings);
+}
+
+#[test]
+fn dates_from_other_programs_are_read_as_dates() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("t.xlsx");
+    let mut writer = rust_xlsxwriter::Workbook::new();
+    let sheet = writer.add_worksheet();
+    let builtin = rust_xlsxwriter::Format::new().set_num_format_index(14);
+    let korean = rust_xlsxwriter::Format::new().set_num_format("yyyy\"년\" m\"월\" d\"일\"");
+    let with_time = rust_xlsxwriter::Format::new().set_num_format("yyyy-mm-dd hh:mm");
+    sheet.write_number_with_format(0, 0, 46_328.0, &builtin).unwrap();
+    sheet.write_number_with_format(1, 0, 46_329.0, &korean).unwrap();
+    sheet.write_number_with_format(2, 0, 46_329.5, &with_time).unwrap();
+    writer.save(&path).unwrap();
+
+    let loaded = XlsxStore.load(&path).unwrap();
+    let shown = |addr: &str| loaded.workbook.active().display(addr.parse().unwrap());
+    assert_eq!(shown("A1"), "2026-11-02");
+    assert_eq!(shown("A2"), "2026-11-03");
+    assert_eq!(shown("A3"), "46329.5", "a time of day is not shown, so the number is");
+    assert_eq!(loaded.loss_warnings, ["cell formatting"], "the time format would be lost");
+}

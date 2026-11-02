@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*/*"]
 
 [workspace.package]
-version = "1.5.0"
+version = "1.15.1"
 edition = "2024"
 license = "PolyForm-Noncommercial-1.0.0"
 
@@ -15,6 +15,7 @@ excel-formula-syntax = { path = "crates/formula/syntax" }
 excel-formula-functions = { path = "crates/formula/functions" }
 excel-formula-engine = { path = "crates/formula/engine" }
 excel-xlsx = { path = "crates/io/xlsx" }
+excel-csv = { path = "crates/io/csv" }
 excel-cmd-cell = { path = "crates/commands/cell" }
 excel-cmd-help = { path = "crates/commands/help" }
 excel-cmd-file = { path = "crates/commands/file" }
@@ -32,6 +33,8 @@ excel-cli = { path = "crates/bin/cli" }
 excel-app = { path = "crates/bin/app" }
 
 calamine = "0.38.0"
+jiff = "0.2.38"
+csv = "1.4.0"
 eframe = "0.37.0"
 egui = "0.37.0"
 rust_xlsxwriter = "0.102.0"

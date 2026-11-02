@@ -2,6 +2,7 @@
 //! panel, and the CLI prints the lists.
 
 use excel_command::{Command, CommandError, CommandRegistry, Context, Effect};
+use excel_model::Doc;
 
 pub fn register(registry: &mut CommandRegistry) {
     registry.register(Help);
@@ -14,8 +15,17 @@ impl Command for Help {
         "help"
     }
 
-    fn help(&self) -> &str {
-        "Show commands, functions, and keys: help, help sort"
+    fn doc(&self) -> Doc {
+        Doc {
+            category: "Help",
+            summary: "Show commands, functions, and keys",
+            usage: "help [topic]",
+            description: "Opens the help panel, also with F1. A topic narrows the list, and the exact name \
+                          of a command or function opens its page.",
+            args: &[("topic", "Optional. Text to search for, or a name")],
+            examples: &[("help", ""), ("help sort", ""), ("help sum", "")],
+            ..Doc::BLANK
+        }
     }
 
     fn run(&self, ctx: &mut Context<'_>, args: &[&str]) -> Result<(), CommandError> {

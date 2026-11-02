@@ -60,12 +60,12 @@ fn wrong_argument_counts_are_value_errors() {
 
 #[test]
 fn single_cell_arguments_are_their_value() {
-    let args = [Arg::Cells(vec![CellValue::Bool(true)]), Arg::Cells(vec![text("a")])];
+    let args = [Arg::cells(vec![CellValue::Bool(true)]), Arg::cells(vec![text("a")])];
     assert_eq!(call_if(&args), text("a"));
 }
 
 #[test]
 fn an_empty_cell_branch_shows_zero() {
-    let args = [value(CellValue::Bool(true)), Arg::Cells(Vec::new())];
+    let args = [value(CellValue::Bool(true)), Arg::cells(Vec::new())];
     assert_eq!(call_if(&args), CellValue::Number(0.0));
 }

@@ -20,6 +20,16 @@ impl History {
         }
     }
 
+    /// The edit undo would revert next, which is also the latest applied.
+    pub fn last_undo(&self) -> Option<&Edit> {
+        self.undo.last()
+    }
+
+    /// The edit redo would apply next, which is also the latest reverted.
+    pub fn last_redo(&self) -> Option<&Edit> {
+        self.redo.last()
+    }
+
     pub(crate) fn pop_undo(&mut self) -> Option<Edit> {
         self.undo.pop()
     }

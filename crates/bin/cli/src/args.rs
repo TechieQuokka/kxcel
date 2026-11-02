@@ -1,12 +1,12 @@
 use std::path::PathBuf;
 
 pub const USAGE: &str = "\
-Usage: kxcel-cli <file.xlsx> [-c <command>]... [--print]
+Usage: kxcel-cli <file.xlsx|file.csv> [-c <command>]... [--print]
 
 Runs commands on a file, in order, stopping at the first failure.
-Changes are only written by the w command.
+Changes are only written by the save command.
 
-  -c, --command <command>   A command, such as \"sort B\" or \"w\"
+  -c, --command <command>   A command, such as \"sort B\" or \"save\"
   -p, --print               Print the active sheet as tab-separated values
   -h, --help                Show this help";
 
@@ -55,8 +55,8 @@ mod tests {
 
     #[test]
     fn reads_file_and_commands_in_order() {
-        let expected = Args { file: "a.xlsx".into(), commands: vec!["sort B".into(), "w".into()], print: true };
-        assert_eq!(parsed(&["a.xlsx", "-c", "sort B", "--command", "w", "-p"]), Ok(Parsed::Run(expected)));
+        let expected = Args { file: "a.xlsx".into(), commands: vec!["sort B".into(), "save".into()], print: true };
+        assert_eq!(parsed(&["a.xlsx", "-c", "sort B", "--command", "save", "-p"]), Ok(Parsed::Run(expected)));
     }
 
     #[test]

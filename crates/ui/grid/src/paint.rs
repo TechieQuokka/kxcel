@@ -69,7 +69,7 @@ pub(crate) fn cells(ui: &Ui, state: &GridState, sheet: &Sheet, layout: &Layout) 
 }
 
 fn paint_cell_text(ui: &Ui, cell: &Cell, rect: Rect, font: &FontId) {
-    let mut text = cell.value.to_string();
+    let mut text = cell.display();
     if text.is_empty() {
         if !cell.uncalculated {
             return;

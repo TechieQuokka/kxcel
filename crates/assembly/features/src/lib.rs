@@ -5,10 +5,17 @@
 
 use std::path::{Path, PathBuf};
 
-use excel_command::{Calculator, CommandRegistry, StoreError, WorkbookStore};
+use excel_command::{Calculator, CommandRegistry, LoadedWorkbook, StoreError, WorkbookStore};
+use excel_csv::CsvStore;
 use excel_edit::Document;
 use excel_formula_engine::FormulaEngine;
 use excel_xlsx::XlsxStore;
+
+/// The order command categories are listed in. Others follow.
+pub const COMMAND_CATEGORIES: &[&str] = &["File", "Edit", "Navigate", "Sheet", "Help"];
+
+/// The order function categories are listed in. Others follow.
+pub const FUNCTION_CATEGORIES: &[&str] = &["Math", "Logic", "Text", "Lookup", "Date"];
 
 /// Every available command.
 pub fn registry() -> CommandRegistry {
@@ -28,7 +35,32 @@ pub fn registry() -> CommandRegistry {
 #[derive(Default)]
 pub struct Services {
     pub calculator: FormulaEngine,
-    pub store: XlsxStore,
+    pub store: FileStore,
+}
+
+/// Picks the file format by extension: `.csv` files are CSV, and anything else
+/// goes to `.xlsx`, which rejects what it cannot read.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct FileStore;
+
+impl FileStore {
+    fn format(path: &Path) -> &'static dyn WorkbookStore {
+        if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("csv")) { &CsvStore } else { &XlsxStore }
+    }
+}
+
+impl WorkbookStore for FileStore {
+    fn load(&self, path: &Path) -> Result<LoadedWorkbook, StoreError> {
+        Self::format(path).load(path)
+    }
+
+    fn save(&self, workbook: &excel_model::Workbook, path: &Path) -> Result<(), StoreError> {
+        Self::format(path).save(workbook, path)
+    }
+
+    fn save_losses(&self, workbook: &excel_model::Workbook, path: &Path) -> Vec<String> {
+        Self::format(path).save_losses(workbook, path)
+    }
 }
 
 impl Services {
@@ -51,11 +83,26 @@ mod tests {
     #[test]
     fn every_command_is_registered() {
         let registry = registry();
-        for name in
-            ["help", "set", "w", "w!", "q", "q!", "e", "e!", "sort", "find", "goto", "insert", "delete", "sheet"]
-        {
+        for name in [
+            "help", "set", "save", "save!", "exit", "exit!", "open", "open!", "sort", "find", "goto", "insert",
+            "delete", "sheet",
+        ] {
             assert!(registry.complete(name).iter().any(|c| c.name == name), "{name}");
         }
+    }
+
+    #[test]
+    fn csv_and_xlsx_files_round_trip_through_one_store() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut book = excel_model::Workbook::new();
+        book.active_mut().set("A1".parse().unwrap(), excel_model::Cell::parse_input("사과"));
+        for name in ["a.csv", "a.CSV", "a.xlsx"] {
+            let path = dir.path().join(name);
+            FileStore.save(&book, &path).unwrap();
+            let loaded = FileStore.load(&path).unwrap().workbook;
+            assert_eq!(loaded.active().value("A1".parse().unwrap()).to_string(), "사과", "{name}");
+        }
+        assert!(FileStore.save(&book, &dir.path().join("a.txt")).is_err());
     }
 
     #[test]

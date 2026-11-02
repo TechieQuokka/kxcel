@@ -1,4 +1,4 @@
-use excel_model::CellValue;
+use excel_model::{CellValue, Doc};
 
 use super::numbers;
 use crate::{Arg, Function};
@@ -10,8 +10,16 @@ impl Function for Sum {
         "SUM"
     }
 
-    fn help(&self) -> &'static str {
-        "SUM(values...)  Add numbers"
+    fn doc(&self) -> Doc {
+        Doc {
+            category: "Math",
+            summary: "Add numbers",
+            usage: "SUM(values...)",
+            description: "Adds every number given. In ranges, text and empty cells are skipped.",
+            args: &[("values", "Numbers, cells, or ranges, separated by commas")],
+            examples: &[("=SUM(1, 2, 3)", "6"), ("=SUM(A1:A10)", ""), ("=SUM(A1:A3, C1)", "")],
+            related: &["AVERAGE", "COUNT"],
+        }
     }
 
     fn call(&self, args: &[Arg]) -> CellValue {

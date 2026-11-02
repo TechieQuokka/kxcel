@@ -1,8 +1,7 @@
 //! Formula evaluation and recalculation.
 
 mod calculator;
-mod deps;
 mod eval;
-mod recalc;
+mod graph;
 
 pub use calculator::FormulaEngine;

@@ -1,5 +1,6 @@
 use excel_command::{Command, CommandError, Context};
 use excel_edit::Edit;
+use excel_model::Doc;
 use excel_model::Sheet;
 
 pub(crate) struct SheetCommand;
@@ -12,8 +13,21 @@ impl Command for SheetCommand {
         "sheet"
     }
 
-    fn help(&self) -> &str {
-        "List, switch, or add sheets: sheet 2, sheet Data, sheet add Name"
+    fn doc(&self) -> Doc {
+        Doc {
+            category: "Sheet",
+            summary: "List, switch, or add sheets",
+            usage: "sheet [name | number | add <name>]",
+            description: "With nothing after it, lists the sheets. A name or number switches to that sheet, \
+                          trying names first so a sheet named 2 can be reached. add creates a sheet.",
+            args: &[
+                ("name", "Optional. A sheet to switch to"),
+                ("number", "Optional. A sheet's position, starting from 1"),
+                ("add <name>", "Optional. Adds a sheet with this name"),
+            ],
+            examples: &[("sheet", ""), ("sheet 2", ""), ("sheet Data", ""), ("sheet add Summary", "")],
+            ..Doc::BLANK
+        }
     }
 
     fn run(&self, ctx: &mut Context<'_>, args: &[&str]) -> Result<(), CommandError> {

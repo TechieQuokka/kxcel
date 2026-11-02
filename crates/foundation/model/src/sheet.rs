@@ -40,6 +40,11 @@ impl Sheet {
         self.cells.get(&addr).map_or(&EMPTY, |cell| &cell.value)
     }
 
+    /// A cell's value as it is shown, following its format. Empty for no cell.
+    pub fn display(&self, addr: CellAddr) -> String {
+        self.get(addr).map(Cell::display).unwrap_or_default()
+    }
+
     pub fn set(&mut self, addr: CellAddr, cell: Option<Cell>) {
         match cell {
             Some(cell) => {

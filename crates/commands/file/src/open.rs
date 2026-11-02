@@ -1,7 +1,7 @@
-use std::path::PathBuf;
-
-use excel_command::{Command, CommandError, Context, Effect};
+use excel_command::path::expand_home;
+use excel_command::{Command, CommandError, Confirmation, Context, Effect, quote_arg};
 use excel_edit::Document;
+use excel_model::Doc;
 
 pub(crate) struct Open {
     pub force: bool,
@@ -9,22 +9,53 @@ pub(crate) struct Open {
 
 impl Command for Open {
     fn name(&self) -> &str {
-        if self.force { "e!" } else { "e" }
+        if self.force { "open!" } else { "open" }
     }
 
-    fn help(&self) -> &str {
-        if self.force { "Open a file, discarding unsaved changes" } else { "Open a file: e data.xlsx" }
+    fn doc(&self) -> Doc {
+        if self.force {
+            Doc {
+                category: "File",
+                summary: "Open a file, discarding unsaved changes",
+                usage: "open! <file>",
+                args: &[("file", "An .xlsx or .csv file")],
+                related: &["open"],
+                ..Doc::BLANK
+            }
+        } else {
+            Doc {
+                category: "File",
+                summary: "Open a file",
+                usage: "open <file>",
+                description: "Opens an .xlsx or .csv file in place of the current one, asking first if there \
+                              are unsaved changes. Tab completes the path, and ~ stands for the home folder. \
+                              Quote a path with spaces.",
+                args: &[("file", "An .xlsx or .csv file")],
+                examples: &[("open data.xlsx", ""), ("open \"~/My Files/list.csv\"", "")],
+                related: &["open!", "save"],
+            }
+        }
+    }
+
+    fn takes_path(&self) -> bool {
+        true
     }
 
     fn run(&self, ctx: &mut Context<'_>, args: &[&str]) -> Result<(), CommandError> {
         let [path] = args else {
-            return Err(CommandError::new("Usage: e <file.xlsx>"));
+            return Err(CommandError::new("Usage: open <file.xlsx>"));
         };
         if ctx.doc.dirty && !self.force {
-            return Err(CommandError::new("Unsaved changes. Use w to save, or e! to discard them"));
+            return Err(CommandError::confirm(
+                "Unsaved changes. Use save to keep them, or open! to discard them",
+                Confirmation::UnsavedChanges {
+                    action: format!("opening {path}"),
+                    proceed: format!("open! {}", quote_arg(path)),
+                },
+            ));
         }
 
-        let path = PathBuf::from(path);
+        let path = expand_home(path);
         let mut loaded = ctx.store.load(&path)?;
         ctx.calculator.recalculate(&mut loaded.workbook);
 
@@ -66,11 +97,12 @@ mod tests {
     }
 
     #[test]
-    fn refuses_with_unsaved_changes_unless_forced() {
+    fn asks_to_confirm_unsaved_changes_unless_forced() {
         let store = store_with_file();
         let mut doc = Document { dirty: true, ..Default::default() };
         let mut ctx = Context::new(&mut doc, &NoCalculator, &store);
-        assert!(E.run(&mut ctx, &["x.xlsx"]).is_err());
+        let error = E.run(&mut ctx, &["my x.xlsx"]).unwrap_err();
+        assert_eq!(error.confirmation.as_ref().map(Confirmation::proceed), Some(r#"open! "my x.xlsx""#));
         Open { force: true }.run(&mut ctx, &["x.xlsx"]).unwrap();
         assert!(!doc.dirty);
     }

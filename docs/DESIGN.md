@@ -1,7 +1,7 @@
 # kxcel: Design Document
 
-Status: first version implemented, and every hand check in section 8 is done.
-Version: 1.5.0. All crates share the workspace version. A new feature raises the
+Status: implemented through 1.15.1. Hand checks for 1.6.0 onward are listed in section 8.
+Version: 1.15.1. All crates share the workspace version. A new feature raises the
 minor version, such as 1.0.0 to 1.1.0, and a bug fix raises the patch version,
 such as 1.1.0 to 1.1.1.
 Last updated: 2026-11-02
@@ -50,7 +50,8 @@ requiring a paid license from the copyright holder. See `LICENSE` and
 | Prototype | Skipped, go directly to the project | Korean input is verified early in implementation instead |
 | Formula display | Raw cell content appears in the status bar, with no separate formula bar | Keeps the window to cells and the command line |
 | Command syntax | No `:` prefix, so a command is just `sort B` | The command line is a dedicated input, so no marker is needed |
-| Command line focus | `Ctrl+L` or a mouse click to enter, `Esc` to return to the grid | Typing in the grid starts cell editing, and `Ctrl+L` never conflicts with cell input |
+| Command line focus | `Ctrl+L` or a mouse click to enter, `Esc` to return to the grid. After a command, the keyboard stays in the command line unless the command moved the cursor (1.6.0) | Typing in the grid starts cell editing, and `Ctrl+L` never conflicts with cell input. Staying lets commands run one after another |
+| Command names | Whole words, no abbreviations: `save`, `open`, `exit` (1.6.0) | Easier to read and remember than `w`, `e`, and `q` |
 | Theme | Dark by default, with light and dark switching added after the first version | Reviewed in the layout mockup. Switching is done by command |
 
 ## 3. Features
@@ -84,11 +85,69 @@ Features outside this first version are added when real use calls for them.
 - Double-clicking a column edge in the header fits the column to its widest
   value, or restores the default width for an empty column (1.1.0)
 
+### Dates (1.11.0)
+
+- A date is a number, the serial day count Excel uses, shown as `YYYY-MM-DD`.
+  Each cell has a format, `General` or `Date`, that only changes how its number
+  is shown, so dates sort, add, and compare as numbers.
+- Typing `2026-11-02`, `2026/11/2`, or `2026.11.02` enters a date. Editing a date
+  shows it as a date again. Dates run from 1900-01-01 to 9999-12-31, numbered as
+  Excel does, including its 1900-02-29.
+- A formula shows a date when it gives one: a reference to a date, a date plus or
+  minus days, or a function that returns a date. The days between two dates
+  are a plain number.
+- Filling continues dates as dates. A single date counts up a day at a time, as
+  in Excel, and `Ctrl` copies it instead.
+- `.xlsx` files keep dates both ways, and date-only cell styles no longer count
+  as formatting that saving would lose. A date with a time of day shows as a
+  number, and its time format still counts as lost.
+- CSV files hold dates as `YYYY-MM-DD` text, which reads back as dates.
+- Other number formats, such as decimal places, are left out on purpose.
+
 ### Formulas
 
 - Arithmetic, cell references, and range references
 - Absolute references such as `$A$1`
 - Functions: `SUM`, `AVERAGE`, `COUNT`, `MIN`, `MAX`, `IF`
+- Math and conditional functions (1.12.0): `ROUND`, `ROUNDUP`, `ROUNDDOWN`,
+  `ABS`, `INT`, `MOD`, `POWER`, `SQRT`, `PRODUCT`, `COUNTA`, `COUNTBLANK`,
+  `SUMIF`, `COUNTIF`, `AVERAGEIF`, `SUMIFS`, and `COUNTIFS`
+  - Rounding is half away from zero after cutting to 15 significant digits, so
+    `ROUND(2.675, 2)` is 2.68 as in Excel, though 2.675 is stored as 2.67499...
+  - Conditions are a value, or text starting with `=`, `<>`, `<`, `<=`, `>`, or
+    `>=`, such as `">5"`. Text matches ignoring case, with `*` and `?` as
+    wildcards and `~` to escape them. `""` matches blank cells, and dates
+    compare as their numbers
+  - The ranges of `SUMIFS` and `COUNTIFS` must be the same size, or the result
+    is `#VALUE!`
+  - Functions receive a range as its shape plus only the cells holding values,
+    so they can line up ranges without building every empty cell
+- Logic and error functions (1.13.0): `AND`, `OR`, `NOT`, `IFERROR`, `IFS`,
+  `ISBLANK`, `ISNUMBER`, `ISTEXT`, and `ISERROR`. In ranges, `AND` and `OR` count
+  numbers and booleans and skip text and blanks, as Excel does. `IFS` with no
+  true condition gives `#N/A`
+- Text functions (1.14.0): `LEN`, `LEFT`, `RIGHT`, `MID`, `UPPER`, `LOWER`,
+  `TRIM`, `CONCAT`, `TEXTJOIN`, `FIND`, `SUBSTITUTE`, `TEXT`, and `VALUE`
+  - Positions and lengths count characters, so Korean text works as expected
+  - `TEXT` covers common formats: `0` and `#` digits, `,` for thousands, `.` for
+    decimals, `%`, quoted text, and dates with `yyyy`, `yy`, `m`, `mm`, `d`, `dd`.
+    Formats with several sections, colors, or times are not supported
+  - `VALUE` reads thousands separators, `%`, and dates
+- Lookup functions (1.15.0): `VLOOKUP`, `HLOOKUP`, `INDEX`, `MATCH`, and `XLOOKUP`
+  - As in Excel, `VLOOKUP`, `HLOOKUP`, and `MATCH` look for the nearest value in
+    sorted data unless told to match exactly, and exact matches allow `*` and `?`
+  - `XLOOKUP` matches exactly by default, needs no sorting, and takes a value to
+    give when nothing is found. Its result range must line up with the searched
+    one and be a single row or column
+- Date functions (1.15.0): `TODAY`, `DATE`, `YEAR`, `MONTH`, `DAY`, and `DATEDIF`
+  - `TODAY` uses the computer's time zone, read with `jiff`, and is recomputed
+    after every edit
+  - `DATE` carries over months and days past their end, as Excel does
+- An empty argument, as in `XLOOKUP(a, b, c, , 2)`, is not supported. Give a
+  value instead
+- A test checks that every help example stating a result gives that result
+- Whole-column references such as `A:A` are not supported yet. Use a range
+  such as `A1:A1000`
 - Function completion: `=` lists every function, typing narrows the list, `Tab` or
   a click completes to `=SUM(`, arrows pick, and `Esc` closes the list
 - Automatic recalculation when a value changes
@@ -102,31 +161,64 @@ Features outside this first version are added when real use calls for them.
 Press `Ctrl+L` or click to enter the command line, and `Esc` to return to the
 grid. Commands autocomplete as they are typed.
 
+After a command runs, the keyboard stays in the command line, so commands can
+run one after another. A command that moves the cursor, such as `goto` or
+`find`, returns to the grid instead. The rule follows the cursor, not the
+command name, so new commands follow it too. A failed command stays with its
+line put back, so it can be fixed and run again (1.6.0).
+
 | Command | Purpose |
 |---|---|
-| `w` | Save |
-| `q` | Quit |
-| `e` | Open a file |
+| `save` | Save, or save as another file with `save <file>` |
+| `exit` | Exit the application |
+| `open` | Open a file |
 | `sort` | Sort |
 | `find` | Search |
 | `goto` | Move to a cell |
 | `insert` | Insert rows or columns |
 | `delete` | Delete rows or columns |
 | `sheet` | List, switch, or add sheets |
-| `set` | Set a cell, so `kxcel-cli` can enter data |
+| `set` | Set a cell, so `kxcel-cli` can enter data. It takes the rest of its line as typed, so quotes in formulas stay (1.15.1) |
 | `help` | Show commands, functions, and keys, optionally filtered: `help sort` (1.3.0) |
 
-A trailing `!` confirms an action that would lose something. `w!` saves over a
-file with content the app cannot keep, and `q!` and `e!` discard unsaved changes.
+A command that would lose something asks first (1.6.0). In the app, `exit` and
+`open` with unsaved changes show the "Save / Don't save / Cancel" dialog, the
+same one closing the window shows, and `save` over a file with content the app
+cannot keep asks "Save anyway / Cancel". Saving first from the dialog asks that
+second question too when it applies, then carries on.
 
-`Ctrl+S` runs `w`.
+A trailing `!` goes ahead without asking: `save!` saves over such a file, and
+`exit!` and `open!` discard unsaved changes. `kxcel-cli` cannot show dialogs,
+so scripts use these forms, and its errors name them.
+
+Commands do not know about dialogs. A command that stops to ask returns a
+`Confirmation` in its error, holding the command line that goes ahead, and the
+app shows the dialog and runs that line once the user agrees.
+
+`Ctrl+S` runs `save`. A document without a file name puts `save ` in the
+command line to type one.
+
+Paths complete with `Tab` after `open` and `save` (1.7.0), as in a terminal:
+the list shows folders first, then files the app can read, matching the typed
+start of the name and ignoring case. Hidden entries appear once a `.` is typed.
+Picking a folder lists its contents next. A path with spaces is quoted, and
+`~` stands for the home folder. A command offers paths by answering
+`takes_path`, so new file commands get completion too.
+
+`save <name>` without an extension adds `.xlsx`. A typed extension is kept.
 
 ### Files
 
 - Read and write `.xlsx`, including multiple sheets
+- Read and write `.csv` (1.8.0). Opening gives one sheet named after the file,
+  with numbers, `TRUE`/`FALSE`, and error values recognized and the rest kept as
+  text, including text starting with `=`. Saving writes the active sheet's
+  values, so `save data.csv` asks first when formulas would keep only their
+  values or other sheets would be left out. Files are UTF-8: a byte order mark
+  is skipped on reading and none is written. The format is chosen by extension
 - Warn on open if a file has formatting, charts, or similar content, and refuse
-  to overwrite it without `w!`, because saving rewrites the file and that content
-  is lost. Saving to a new file with `w <file>` needs no confirmation
+  to overwrite it without confirmation, because saving rewrites the file and that content
+  is lost. Saving to a new file with `save <file>` needs no confirmation
 - A save replaces the file in one step, so a failure leaves the old file intact
 
 ### Excluded from the first version
@@ -154,13 +246,13 @@ file with content the app cannot keep, and `q!` and `e!` discard unsaved changes
 kxcel data.xlsx
 
 # Headless, using the same commands as the GUI command line
-kxcel-cli data.xlsx -c "sort B" -c "w"
+kxcel-cli data.xlsx -c "sort B" -c "save"
 kxcel-cli data.xlsx --print
 ```
 
 `kxcel-cli` processes files directly. It does not control a running window.
 Commands run in order and stop at the first failure, and changes are written
-only by `w`.
+only by `save`.
 
 ```
 ┌──────────────────────────────┐
@@ -194,6 +286,25 @@ their own color, and the completion lists are labelled Commands or Functions (1.
 The lists come from the registries, so new commands and functions appear in help
 automatically. `kxcel-cli --help` and `help` in the CLI print the same lists.
 
+The panel was reworked in 1.9.0 to stay usable as commands and functions grow:
+
+- Entries are grouped by category, such as File, Edit, and Navigate for
+  commands, and Math, Logic, Text, Lookup, and Date for functions. Groups start
+  folded, showing their size, and a search unfolds only the groups with matches.
+- Picking an entry switches the panel to its page: summary, usage, description,
+  arguments with optional ones marked, examples with results, and related
+  entries that open their own pages. Back, or `Esc`, returns to the list.
+- With the search box focused, the arrow keys move through the list and `Enter`
+  opens the highlighted entry, or the only match.
+- `help sum`, naming an entry exactly, opens its page. A partial name lists matches.
+- `kxcel-cli` prints the same page for `-c "help sum"`, and lists by category otherwise.
+
+Each command and function describes itself with a `Doc` from `excel-model`,
+which holds these parts. Only the summary and usage are required. The category
+order is set once in `excel-features`, and a test checks that every entry has a
+category and that related names exist. Command completion shows each command's
+usage next to its summary.
+
 ### Icon (1.2.0)
 
 A pop-style icon of merged cells with a check mark, based on the "시안 7-2 – 팝
@@ -206,7 +317,7 @@ the desktop entry, so run `packaging/install.sh` to see it in the dock.
 
 ### Project structure
 
-There are 22 crates. Package names carry an `excel-` prefix because a crate
+There are 23 crates. Package names carry an `excel-` prefix because a crate
 named `core` could conflict with Rust's built-in `core` library.
 
 ```
@@ -226,27 +337,38 @@ excel/
 └── crates/
     ├── foundation/
     │   ├── model/                   # excel-model
-    │   │   └── src/ lib, address, range, value, cell, sheet, workbook
+    │   │   └── src/ lib, address, range, value, cell, date, doc, sheet, workbook
     │   ├── edit/                    # excel-edit
     │   │   └── src/ lib, edit, history, document
     │   └── command/                 # excel-command
     │       └── src/ lib, command, context, effect, error,
-    │                services, registry, parse, testing
+    │                services, registry, parse, path, testing
     │
     ├── formula/
     │   ├── syntax/                  # excel-formula-syntax
     │   │   ├── src/ lib, token, lexer, ast, parser, rewrite
     │   │   └── tests/ parser, rewrite
     │   ├── functions/               # excel-formula-functions
-    │   │   ├── src/ lib, function, registry
-    │   │   ├── src/math/ mod, sum, average, count, min, max
-    │   │   ├── src/logic/ mod, if_fn
+    │   │   ├── src/ lib, function, registry, criteria
+    │   │   ├── src/math/ mod, sum, average, count, min, max, product, abs, int,
+    │   │   │             mod_fn, power, sqrt, round, roundup, rounddown, counta,
+    │   │   │             countblank, countif, countifs, sumif, sumifs, averageif
+    │   │   ├── src/logic/ mod, if_fn, ifs, iferror, and, or, not,
+    │   │   │              isblank, isnumber, istext, iserror
+    │   │   ├── src/text/ mod, format, len, left, right, mid, upper, lower, trim,
+    │   │   │             concat, textjoin, find, substitute, text_fn, value
+    │   │   ├── src/lookup/ mod, vlookup, hlookup, index, match_fn, xlookup
+    │   │   ├── src/date/ mod, today, date_fn, year, month, day, datedif
     │   │   └── tests/ math, logic
     │   └── engine/                  # excel-formula-engine
-    │       ├── src/ lib, eval, deps, recalc, calculator
-    │       └── tests/ arithmetic, references, errors, recalc
+    │       ├── src/ lib, eval, graph, calculator
+    │       └── tests/ arithmetic, references, errors, recalc, incremental, bench,
+    │                  dates, math_functions, logic_functions, text_functions,
+    │                  lookup_functions, date_functions, doc_examples
     │
     ├── io/
+    │   ├── csv/                     # excel-csv
+    │   │   └── src/ lib
     │   └── xlsx/                    # excel-xlsx
     │       ├── src/ lib, store, error
     │       ├── src/read/ mod, cells, formulas, sheets
@@ -257,7 +379,7 @@ excel/
     ├── commands/                    # each: src/lib + command files with their tests
     │   ├── cell/                    # excel-cmd-cell: set
     │   ├── help/                    # excel-cmd-help: help
-    │   ├── file/                    # excel-cmd-file: write, quit, open
+    │   ├── file/                    # excel-cmd-file: save, exit, open
     │   ├── sort/                    # excel-cmd-sort: sort
     │   ├── find/                    # excel-cmd-find: find
     │   ├── navigate/                # excel-cmd-navigate: goto
@@ -305,8 +427,9 @@ excel/
 ```rust
 pub trait Command {
     fn name(&self) -> &str;
-    fn help(&self) -> &str;
+    fn doc(&self) -> Doc;
     fn run(&self, ctx: &mut Context, args: &[&str]) -> Result<(), CommandError>;
+    fn takes_path(&self) -> bool { false }
 }
 ```
 
@@ -314,10 +437,13 @@ pub trait Command {
 listed, and both the GUI and the CLI use it. Autocomplete reads the same
 registry, so a registered command appears as a candidate automatically.
 
-**Service traits.** `w` needs file saving and `sort` needs recalculation, but
+**Service traits.** `save` needs file saving and `sort` needs recalculation, but
 direct dependencies between features would break their independence. So
 `excel-command` defines the `WorkbookStore` and `Calculator` traits, and the
 implementations are supplied at runtime. Tests can supply fake implementations.
+`excel-features` supplies a `FileStore` that hands each path to `excel-csv` or
+`excel-xlsx` by extension, and `save_losses` lets a format say what saving to it
+would leave out.
 
 **Korean input.** Focus is requested only when missing, because `egui` interrupts composition on every request. A text box stays focused at the cursor even when no edit is in
 progress, at one pixel wide. The system only offers input methods to a focused
@@ -335,12 +461,47 @@ Scrolling to a far cell measures only the rows near it.
 **Clipboard.** Values holding a tab, a line break, or a quote are quoted, as
 Excel does, so multi-line cells copy and paste between applications.
 
-**Recalculation.** Every formula is recomputed after each edit, in dependency
-order. The order is computed iteratively, so long chains cannot overflow the stack.
+**Recalculation.** Incremental since 1.10.0. The engine keeps a dependency
+graph of the workbook it last calculated: what each formula reads, by single
+references and by ranges, and the edges between formulas. Every change to cells
+reaches it through `Calculator::update` with the edit, including undo and redo.
+
+- A value edit finds the formulas reading the changed cells and follows the
+  edges from there, so only those are computed.
+- A formula edit patches just that formula's edges, then computes what it affects.
+  More than 256 formulas changed at once rebuild the graph instead.
+- The affected formulas are sorted among themselves, iteratively so long chains
+  cannot overflow the stack. Those that never become ready are in a cycle or
+  read one, and show `#CYCLE!`.
+- Volatile functions, such as `TODAY`, are recomputed after every edit.
+- Changes to whole sheets, such as sort, insert, delete, and adding a sheet, and
+  opening a file recalculate everything. So does a workbook the graph was not
+  built for: each workbook, including each copy, has its own identity.
+
+A test replays over a thousand random histories of edits, undos, and redos
+across two sheets, with ranges, cross-sheet references, cycles, and unknown
+functions, and checks after every step that the result equals recalculating
+from scratch. Timings, from `cargo test --release -p excel-formula-engine --test
+bench -- --ignored --nocapture`, on 200,000 formulas:
+
+| Edit | Before (1.9.0) | Incremental |
+|---|---|---|
+| Value read by one formula and one total | 480 ms | 6 ms |
+| Value at the top of a 100,000-step chain | 450 ms | 125 ms |
+| Value no formula reads | 620 ms | 0.004 ms |
+| Formula in the middle of the chain | 450 ms | 65 ms |
 
 **Function trait.** The `Function` trait belongs to
 `excel-formula-functions`, because only formulas use it. Each function has its
-own file.
+own file, grouped in folders by category. Besides its name, `Doc`, and `call`, a
+function may say it is `volatile`, recomputed after every edit like `TODAY`,
+and that it `returns_date`, so its formula shows a date.
+
+**Function arguments.** A reference reaches a function as `Cells`: the shape of
+the range plus only the cells holding values, with their positions. Functions
+that line ranges up, such as `SUMIF` and `VLOOKUP`, read positions from it, and
+a large range costs only what it holds. Conditions such as `">5"` are shared
+by the conditional functions in `criteria`.
 
 **Granularity limits.** Formula functions are split by file rather than by
 crate, since one crate per function would make management harder. `excel-xlsx`
@@ -351,7 +512,7 @@ remains one crate because reading and writing implement the same contract.
 - **Command:** add a folder under `crates/commands/`, add it to the root and
   `excel-features` manifests, then add one line to `excel-features`.
 - **Formula function:** add one file under `excel-formula-functions`, then
-  register it. Its help line appears in completion automatically.
+  register it. Its `Doc` appears in completion and help automatically.
 
 ### Independent testing
 
@@ -376,6 +537,8 @@ again when each dependency is added.
 | `calamine` | 0.38.0 | Read `.xlsx` |
 | `rust_xlsxwriter` | 0.102.0 | Write `.xlsx` |
 | `zip` | 9.2.2 | Inspect `.xlsx` contents for what saving would lose |
+| `csv` | 1.4.0 | Read and write `.csv` (1.8.0) |
+| `jiff` | 0.2.38 | Today's date in the local time zone for `TODAY` (1.15.0) |
 | `tempfile` | 3.27.0 | Temporary files in tests |
 
 Shared dependency versions are managed once, in the workspace root.
@@ -419,10 +582,16 @@ built. The hand checks from stage 2 are listed in section 8.
 | Help panel and multi-line cells | Confirmed by hand: `F1`, search, `Alt+Enter`, and taller rows | Done |
 | Fill shrink, command and function split, fill series | Confirmed by hand in 1.5.0: geometric fill, shrinking, Ctrl to count up, and the help split | Done |
 | Window close prompt and Korean commands | Confirmed by hand: the unsaved-changes prompt, Cancel, Don't save, and `find` with Korean | Done |
-| Large recalculation | 100,000 formulas stay within the 5-second test limit in a debug build. Each edit recomputes every formula, so very large files may feel slow | Make recalculation incremental if real use needs it |
+| Command names, confirmation dialogs, and focus (1.6.0) | Covered by automated tests | Check by hand: `exit`/`open` dialogs, `save` over a formatted file, staying in the command line |
+| Path completion (1.7.0) | Covered by automated tests | Check by hand: `Tab` through folders, Korean names, names with spaces |
+| CSV (1.8.0) | Covered by automated tests | Check a file from Excel or another tool |
+| Help panel rework (1.9.0) | Covered by automated tests | Check by hand: folding groups, pages, related links, arrow keys |
+| Dates (1.11.0) | Covered by automated tests | Check a file with dates from Excel |
+| Functions (1.12.0 to 1.15.0) | Covered by automated tests, including every help example with a result | Compare a few results with Excel |
+| Large recalculation | Incremental since 1.10.0, and checked against full recalculation by a randomized test. Opening a file and whole-sheet commands still compute everything | Done |
 | Column widths | Written to the file but not read back, so they reset on reopening | Add when real use needs it |
 | Multi-line cells in Excel | Line breaks are saved, but Excel shows them on one line unless the cell has wrapping turned on, which this app does not write | Add a wrap format if files are shared with Excel |
-| Dates | Read as serial numbers, with no date formatting | Add when real use needs it |
+| Dates | Shown as `YYYY-MM-DD` since 1.11.0. Times of day are not shown | Add times if real use needs them |
 | Formula compatibility with Excel | Round trips are tested with `calamine` only. Files have not been opened in Excel itself | Check when a file is shared |
 
 ## 9. Environment

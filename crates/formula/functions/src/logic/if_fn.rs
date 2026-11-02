@@ -1,6 +1,6 @@
-use excel_model::{CellError, CellValue};
+use excel_model::{CellError, CellValue, Doc};
 
-use crate::{Arg, Function, to_bool};
+use crate::{Arg, Function, scalar, to_bool};
 
 pub(crate) struct If;
 
@@ -9,8 +9,22 @@ impl Function for If {
         "IF"
     }
 
-    fn help(&self) -> &'static str {
-        "IF(condition, then, [else])  Pick by a condition"
+    fn doc(&self) -> Doc {
+        Doc {
+            category: "Logic",
+            summary: "Pick a value by a condition",
+            usage: "IF(condition, then, [else])",
+            description: "Gives then when the condition is true, otherwise else. Only the chosen branch \
+                          matters, so an error in the other one is ignored. Without else, a false condition \
+                          gives FALSE.",
+            args: &[
+                ("condition", "A comparison or value, such as A1>10"),
+                ("then", "The result when the condition is true"),
+                ("else", "Optional. The result when it is false"),
+            ],
+            examples: &[("=IF(5>3, \"yes\", \"no\")", "yes"), ("=IF(B2=0, 0, A2/B2)", "")],
+            ..Doc::BLANK
+        }
     }
 
     /// `IF(condition, then, [else])`. Without an else, a false condition gives FALSE.
@@ -18,29 +32,17 @@ impl Function for If {
         if !(2..=3).contains(&args.len()) {
             return CellValue::Error(CellError::Value);
         }
-        let condition = match single(&args[0]) {
+        let condition = match scalar(&args[0]) {
             Ok(value) => to_bool(&value),
             Err(error) => Err(error),
         };
         match condition {
-            Ok(true) => single(&args[1]).unwrap_or_else(CellValue::Error),
+            Ok(true) => scalar(&args[1]).unwrap_or_else(CellValue::Error),
             Ok(false) => match args.get(2) {
-                Some(arg) => single(arg).unwrap_or_else(CellValue::Error),
+                Some(arg) => scalar(arg).unwrap_or_else(CellValue::Error),
                 None => CellValue::Bool(false),
             },
             Err(error) => CellValue::Error(error),
         }
-    }
-}
-
-/// Reads one value from an argument. A range of several cells is not one value.
-fn single(arg: &Arg) -> Result<CellValue, CellError> {
-    match arg {
-        Arg::Value(value) => Ok(value.clone()),
-        Arg::Cells(values) => match values.as_slice() {
-            [] => Ok(CellValue::Number(0.0)),
-            [value] => Ok(value.clone()),
-            _ => Err(CellError::Value),
-        },
     }
 }

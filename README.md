@@ -7,7 +7,7 @@ spreadsheet, and anything complex is done through commands.
 
 ```sh
 kxcel data.xlsx
-kxcel-cli data.xlsx -c "sort B" -c "w"
+kxcel-cli data.xlsx -c "sort B" -c "save"
 ```
 
 In the window, press `F1` for help, `Ctrl+L` for the command line, where
@@ -18,8 +18,15 @@ type `=` to list functions.
 
 - `.xlsx` reading and writing, with a warning before saving over content the
   app cannot keep
-- Formulas with automatic recalculation: arithmetic, references, `SUM`,
-  `AVERAGE`, `COUNT`, `MIN`, `MAX`, `IF`
+- Formulas with automatic, incremental recalculation and 55 functions: math
+  and conditional sums (`SUM`, `ROUND`, `SUMIF`, `COUNTIFS`), logic (`IF`, `IFS`,
+  `IFERROR`, `AND`), text (`LEFT`, `TEXT`, `TEXTJOIN`, `SUBSTITUTE`), lookup
+  (`VLOOKUP`, `XLOOKUP`, `INDEX`, `MATCH`), and dates (`TODAY`, `DATE`, `DATEDIF`)
+- Dates shown as `YYYY-MM-DD`, typed the same way
+- `.csv` reading and writing
+- Commands such as `save`, `open`, `exit`, `sort`, `find`, and `goto`, with
+  `Tab` completing command names and file paths
+- A help panel with a page for every command and function (`F1`)
 - Fill handle that continues series such as 1, 2, 3 and 1, 2, 4
 - Multi-line cells, Korean input, undo, copy and paste
 - A headless CLI that runs the same commands as the app

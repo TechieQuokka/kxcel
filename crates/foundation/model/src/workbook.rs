@@ -1,10 +1,32 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use crate::Sheet;
 
 /// A set of sheets, one of which is active. There is always at least one sheet.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub struct Workbook {
     sheets: Vec<Sheet>,
     active: usize,
+    id: u64,
+}
+
+/// Gives each workbook, including each clone, its own identity.
+fn next_id() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
+impl Clone for Workbook {
+    fn clone(&self) -> Self {
+        Self { sheets: self.sheets.clone(), active: self.active, id: next_id() }
+    }
+}
+
+/// Workbooks are equal by content. Identity is left out.
+impl PartialEq for Workbook {
+    fn eq(&self, other: &Self) -> bool {
+        self.sheets == other.sheets && self.active == other.active
+    }
 }
 
 impl Default for Workbook {
@@ -15,7 +37,7 @@ impl Default for Workbook {
 
 impl Workbook {
     pub fn new() -> Self {
-        Self { sheets: vec![Sheet::new("Sheet1")], active: 0 }
+        Self { sheets: vec![Sheet::new("Sheet1")], active: 0, id: next_id() }
     }
 
     /// Builds a workbook from sheets, or a blank one if `sheets` is empty.
@@ -23,7 +45,13 @@ impl Workbook {
         if sheets.is_empty() {
             return Self::new();
         }
-        Self { sheets, active: 0 }
+        Self { sheets, active: 0, id: next_id() }
+    }
+
+    /// Tells this workbook apart from every other, clones included, so a cache
+    /// built for one is never used for another.
+    pub fn id(&self) -> u64 {
+        self.id
     }
 
     pub fn sheets(&self) -> &[Sheet] {

@@ -8,6 +8,6 @@ mod entries;
 mod panel;
 mod state;
 
-pub use entries::{HelpEntry, HelpSection, filter};
+pub use entries::{HelpEntry, HelpGroup, HelpSection, filter, find};
 pub use panel::{HelpAction, show};
 pub use state::HelpState;

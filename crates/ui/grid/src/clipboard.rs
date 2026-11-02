@@ -13,7 +13,7 @@ pub fn to_tsv(sheet: &Sheet, range: CellRange) -> String {
             if col > range.start.col {
                 text.push('\t');
             }
-            text.push_str(&quote_field(&sheet.value(CellAddr::new(row, col)).to_string()));
+            text.push_str(&quote_field(&sheet.display(CellAddr::new(row, col))));
         }
     }
     text

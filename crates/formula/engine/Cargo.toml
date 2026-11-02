@@ -10,3 +10,4 @@ excel-model.workspace = true
 excel-command.workspace = true
 excel-formula-syntax.workspace = true
 excel-formula-functions.workspace = true
+excel-edit.workspace = true

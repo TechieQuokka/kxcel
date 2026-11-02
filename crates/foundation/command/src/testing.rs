@@ -42,6 +42,8 @@ pub struct MemoryStore {
     pub files: RefCell<HashMap<PathBuf, Workbook>>,
     /// Warnings returned with every load.
     pub loss_warnings: Vec<String>,
+    /// What saving to a path with this extension leaves out.
+    pub save_losses: HashMap<String, Vec<String>>,
 }
 
 impl WorkbookStore for MemoryStore {
@@ -55,5 +57,10 @@ impl WorkbookStore for MemoryStore {
     fn save(&self, workbook: &Workbook, path: &Path) -> Result<(), StoreError> {
         self.files.borrow_mut().insert(path.to_owned(), workbook.clone());
         Ok(())
+    }
+
+    fn save_losses(&self, _workbook: &Workbook, path: &Path) -> Vec<String> {
+        let extension = path.extension().map(|ext| ext.to_string_lossy().into_owned()).unwrap_or_default();
+        self.save_losses.get(&extension).cloned().unwrap_or_default()
     }
 }

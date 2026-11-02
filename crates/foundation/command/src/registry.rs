@@ -1,11 +1,15 @@
 use std::collections::BTreeMap;
 
+use excel_model::Doc;
+
 use crate::{Command, CommandError, Context, split_line};
 
 /// A completion candidate.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Candidate {
     pub name: String,
+    /// How to write it, such as `sort <column> [desc] [header]`.
+    pub usage: String,
     pub help: String,
 }
 
@@ -27,8 +31,21 @@ impl CommandRegistry {
         self.commands
             .iter()
             .filter(|(name, _)| name.starts_with(&prefix))
-            .map(|(name, command)| Candidate { name: name.clone(), help: command.help().to_owned() })
+            .map(|(name, command)| {
+                let doc = command.doc();
+                Candidate { name: name.clone(), usage: doc.usage.to_owned(), help: doc.summary.to_owned() }
+            })
             .collect()
+    }
+
+    /// Every command's name and help, sorted by name.
+    pub fn docs(&self) -> Vec<(String, Doc)> {
+        self.commands.iter().map(|(name, command)| (name.clone(), command.doc())).collect()
+    }
+
+    /// Whether the named command takes a file path, ignoring case.
+    pub fn takes_path(&self, name: &str) -> bool {
+        self.commands.get(&name.to_ascii_lowercase()).is_some_and(|command| command.takes_path())
     }
 
     /// Parses and runs one command line. A blank line does nothing.
@@ -41,6 +58,11 @@ impl CommandRegistry {
             .commands
             .get(&name.to_ascii_lowercase())
             .ok_or_else(|| CommandError::new(format!("Unknown command: {name}")))?;
+        if command.takes_raw_line() {
+            let rest = line.trim_start().split_once(char::is_whitespace).map_or("", |(_, rest)| rest.trim_start());
+            let args: Vec<&str> = if rest.is_empty() { Vec::new() } else { vec![rest] };
+            return command.run(ctx, &args);
+        }
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         command.run(ctx, &args)
     }
@@ -59,8 +81,8 @@ mod tests {
         fn name(&self) -> &str {
             self.0
         }
-        fn help(&self) -> &str {
-            "Echo arguments"
+        fn doc(&self) -> Doc {
+            Doc { summary: "Echo arguments", usage: "echo", ..Doc::BLANK }
         }
         fn run(&self, ctx: &mut Context<'_>, args: &[&str]) -> Result<(), CommandError> {
             ctx.say(args.join(","));
@@ -95,6 +117,36 @@ mod tests {
         let mut ctx = Context::new(&mut doc, &NoCalculator, &NoStore);
         registry().execute("SORT B desc", &mut ctx).unwrap();
         assert_eq!(ctx.message.as_deref(), Some("B,desc"));
+    }
+
+    struct Raw;
+
+    impl Command for Raw {
+        fn name(&self) -> &str {
+            "raw"
+        }
+        fn doc(&self) -> Doc {
+            Doc { summary: "Echo the line", usage: "raw", ..Doc::BLANK }
+        }
+        fn run(&self, ctx: &mut Context<'_>, args: &[&str]) -> Result<(), CommandError> {
+            ctx.say(format!("{args:?}"));
+            Ok(())
+        }
+        fn takes_raw_line(&self) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn a_raw_line_keeps_quotes_and_spaces() {
+        let mut registry = registry();
+        registry.register(Raw);
+        let mut doc = Document::default();
+        let mut ctx = Context::new(&mut doc, &NoCalculator, &NoStore);
+        registry.execute(r#"  raw  A1 =IF(B1="예", "네  개", 0)"#, &mut ctx).unwrap();
+        assert_eq!(ctx.message.as_deref(), Some(r#"["A1 =IF(B1=\"예\", \"네  개\", 0)"]"#));
+        registry.execute("raw", &mut ctx).unwrap();
+        assert_eq!(ctx.message.as_deref(), Some("[]"));
     }
 
     #[test]

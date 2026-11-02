@@ -8,3 +8,6 @@ license.workspace = true
 [dependencies]
 excel-command.workspace = true
 egui.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

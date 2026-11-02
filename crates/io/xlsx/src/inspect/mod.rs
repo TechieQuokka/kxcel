@@ -28,7 +28,13 @@ pub fn inspect(path: &Path) -> Result<Vec<String>, StoreError> {
     for name in names.iter().filter(|name| is_sheet_part(name)) {
         sheets.push(read_part(&mut archive, name).map_err(|e| file_error("read", path, e))?);
     }
-    warnings.extend(styles::warnings_from_sheets(&sheets));
+    let kept = match names.iter().any(|name| name == "xl/styles.xml") {
+        true => {
+            styles::kept_styles(&read_part(&mut archive, "xl/styles.xml").map_err(|e| file_error("read", path, e))?)
+        }
+        false => Default::default(),
+    };
+    warnings.extend(styles::warnings_from_sheets(&sheets, &kept));
     if names.iter().any(|name| name == "xl/workbook.xml") {
         let workbook = read_part(&mut archive, "xl/workbook.xml").map_err(|e| file_error("read", path, e))?;
         if workbook.contains("<definedName") {

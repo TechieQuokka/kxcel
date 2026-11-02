@@ -10,7 +10,7 @@ fn number(n: f64) -> CellValue {
 }
 
 fn cells() -> Arg {
-    Arg::Cells(vec![number(1.0), CellValue::Text("x".into()), number(5.0), CellValue::Bool(true)])
+    Arg::cells(vec![number(1.0), CellValue::Text("x".into()), number(5.0), CellValue::Bool(true)])
 }
 
 #[test]
@@ -32,7 +32,7 @@ fn sum_rejects_typed_text_that_is_not_a_number() {
 
 #[test]
 fn errors_in_cells_propagate() {
-    let args = [Arg::Cells(vec![number(1.0), CellValue::Error(CellError::Na)])];
+    let args = [Arg::cells(vec![number(1.0), CellValue::Error(CellError::Na)])];
     for name in ["SUM", "AVERAGE", "MIN", "MAX"] {
         assert_eq!(call(name, &args), CellValue::Error(CellError::Na), "{name}");
     }
@@ -45,14 +45,14 @@ fn average_divides_by_the_count_of_numbers() {
 
 #[test]
 fn average_of_nothing_is_div0() {
-    assert_eq!(call("AVERAGE", &[Arg::Cells(Vec::new())]), CellValue::Error(CellError::Div0));
+    assert_eq!(call("AVERAGE", &[Arg::cells(Vec::new())]), CellValue::Error(CellError::Div0));
 }
 
 #[test]
 fn count_counts_numbers_and_skips_errors() {
     let args = [
         cells(),
-        Arg::Cells(vec![CellValue::Error(CellError::Na)]),
+        Arg::cells(vec![CellValue::Error(CellError::Na)]),
         Arg::Value(number(9.0)),
         Arg::Value(CellValue::Text("x".into())),
     ];
@@ -67,6 +67,6 @@ fn min_and_max_find_extremes() {
 
 #[test]
 fn min_and_max_of_nothing_are_zero() {
-    assert_eq!(call("MIN", &[Arg::Cells(Vec::new())]), number(0.0));
-    assert_eq!(call("MAX", &[Arg::Cells(Vec::new())]), number(0.0));
+    assert_eq!(call("MIN", &[Arg::cells(Vec::new())]), number(0.0));
+    assert_eq!(call("MAX", &[Arg::cells(Vec::new())]), number(0.0));
 }

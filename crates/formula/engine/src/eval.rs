@@ -1,6 +1,6 @@
-use excel_formula_functions::{Arg, FunctionRegistry, to_number};
+use excel_formula_functions::{Arg, Cells, FunctionRegistry, to_number};
 use excel_formula_syntax::{BinaryOp, CellRef, Expr, UnaryOp};
-use excel_model::{CellError, CellRange, CellValue, Workbook};
+use excel_model::{CellError, CellRange, CellValue, NumberFormat, Workbook};
 
 /// Evaluates formulas, reading already-computed values from the workbook.
 pub(crate) struct Evaluator<'a> {
@@ -39,6 +39,23 @@ impl Evaluator<'_> {
         }
     }
 
+    /// Whether a formula gives a date, as Excel decides when picking a
+    /// formula's format: a function returning a date, a reference to a date,
+    /// or a date plus or minus days. The difference of two dates is a count
+    /// of days, not a date.
+    pub fn is_date(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Cell { sheet, cell } => self.sheet_index(sheet.as_deref()).is_some_and(|index| {
+                self.workbook.sheets()[index].get(cell.addr).is_some_and(|cell| cell.format == NumberFormat::Date)
+            }),
+            Expr::Call { name, .. } => self.functions.get(name).is_some_and(|function| function.returns_date()),
+            Expr::Unary(UnaryOp::Plus, inner) => self.is_date(inner),
+            Expr::Binary(BinaryOp::Add, left, right) => self.is_date(left) != self.is_date(right),
+            Expr::Binary(BinaryOp::Sub, left, right) => self.is_date(left) && !self.is_date(right),
+            _ => false,
+        }
+    }
+
     fn cell_value(&self, sheet: Option<&str>, cell: CellRef) -> CellValue {
         match self.sheet_index(sheet) {
             Some(index) => self.workbook.sheets()[index].value(cell.addr).clone(),
@@ -51,18 +68,18 @@ impl Evaluator<'_> {
     fn argument(&self, expr: &Expr) -> Arg {
         match expr {
             Expr::Cell { sheet, cell } => match self.cell_value(sheet.as_deref(), *cell) {
-                CellValue::Empty => Arg::Cells(Vec::new()),
-                value => Arg::Cells(vec![value]),
+                CellValue::Error(CellError::Ref) if self.sheet_index(sheet.as_deref()).is_none() => {
+                    Arg::Value(CellValue::Error(CellError::Ref))
+                }
+                value => Arg::Cells(Cells::new(1, 1, [(0, 0, value)])),
             },
             Expr::Range { sheet, start, end } => match self.sheet_index(sheet.as_deref()) {
                 Some(index) => {
                     let range = CellRange::new(start.addr, end.addr);
-                    let values = self.workbook.sheets()[index]
-                        .iter_range(range)
-                        .map(|(_, cell)| cell.value.clone())
-                        .filter(|value| !value.is_empty())
-                        .collect();
-                    Arg::Cells(values)
+                    let entries = self.workbook.sheets()[index].iter_range(range).map(|(addr, cell)| {
+                        (addr.row - range.start.row, addr.col - range.start.col, cell.value.clone())
+                    });
+                    Arg::Cells(Cells::new(range.rows(), range.cols(), entries))
                 }
                 None => Arg::Value(CellValue::Error(CellError::Ref)),
             },

@@ -30,9 +30,22 @@ pub fn split_line(line: &str) -> Vec<String> {
     parts
 }
 
+/// Writes an argument so that [`split_line`] reads it back unchanged: quoted if
+/// it is empty or holds whitespace. Quotes inside it cannot be kept.
+pub fn quote_arg(arg: &str) -> String {
+    if arg.is_empty() || arg.contains(char::is_whitespace) { format!("\"{arg}\"") } else { arg.to_owned() }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quoted_arguments_split_back_unchanged() {
+        for arg in ["data.xlsx", "my file.xlsx", "", "사과 배"] {
+            assert_eq!(split_line(&format!("open {}", quote_arg(arg))), ["open", arg]);
+        }
+    }
 
     #[test]
     fn splits_on_whitespace() {
@@ -42,7 +55,7 @@ mod tests {
 
     #[test]
     fn quotes_keep_spaces() {
-        assert_eq!(split_line(r#"e "my file.xlsx""#), ["e", "my file.xlsx"]);
+        assert_eq!(split_line(r#"open "my file.xlsx""#), ["open", "my file.xlsx"]);
         assert_eq!(split_line(r#"find """#), ["find", ""]);
         assert_eq!(split_line(r#"find "a b"#), ["find", "a b"]);
     }

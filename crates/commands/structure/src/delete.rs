@@ -1,4 +1,5 @@
 use excel_command::{Command, CommandError, Context, Structural};
+use excel_model::Doc;
 
 use crate::target::{Target, apply};
 
@@ -9,8 +10,21 @@ impl Command for Delete {
         "delete"
     }
 
-    fn help(&self) -> &str {
-        "Delete rows or columns: delete row 3 2, delete col C"
+    fn doc(&self) -> Doc {
+        Doc {
+            category: "Edit",
+            summary: "Delete rows or columns",
+            usage: "delete <row|col> [position] [count]",
+            description: "Removes rows or columns and shifts the rest up or left. Formulas that referred \
+                          to removed cells show #REF!.",
+            args: &[
+                ("row|col", "Whether to delete rows or columns"),
+                ("position", "Optional. A row number or column letter. The cursor's by default"),
+                ("count", "Optional. How many. 1 by default"),
+            ],
+            examples: &[("delete row 3 2", ""), ("delete col C", "")],
+            related: &["insert"],
+        }
     }
 
     fn run(&self, ctx: &mut Context<'_>, args: &[&str]) -> Result<(), CommandError> {

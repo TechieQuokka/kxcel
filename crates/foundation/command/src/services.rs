@@ -1,6 +1,7 @@
 use std::fmt;
 use std::path::Path;
 
+use excel_edit::Edit;
 use excel_model::Workbook;
 
 /// Inserted or deleted rows or columns.
@@ -17,6 +18,13 @@ pub enum Structural {
 pub trait Calculator {
     /// Recomputes every formula in the workbook.
     fn recalculate(&self, workbook: &mut Workbook);
+
+    /// Brings formulas up to date after `edit` was applied or reverted, which
+    /// may recompute only what the edit affects. Every change to a workbook's
+    /// cells must come through here or [`Calculator::recalculate`].
+    fn update(&self, workbook: &mut Workbook, _edit: &Edit) {
+        self.recalculate(workbook);
+    }
 
     /// Rewrites a formula for a copy moved by an offset. Relative references move
     /// with it, and references that leave the sheet become `#REF!`.
@@ -50,4 +58,10 @@ impl std::error::Error for StoreError {}
 pub trait WorkbookStore {
     fn load(&self, path: &Path) -> Result<LoadedWorkbook, StoreError>;
     fn save(&self, workbook: &Workbook, path: &Path) -> Result<(), StoreError>;
+
+    /// What saving this workbook to `path` would leave out, such as formulas
+    /// in a format that holds only values. Empty when nothing is lost.
+    fn save_losses(&self, _workbook: &Workbook, _path: &Path) -> Vec<String> {
+        Vec::new()
+    }
 }

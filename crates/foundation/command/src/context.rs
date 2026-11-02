@@ -29,10 +29,12 @@ impl<'a> Context<'a> {
         }
     }
 
-    /// Applies an edit, records it for undo, and recalculates.
+    /// Applies an edit, records it for undo, and brings formulas up to date.
     pub fn apply(&mut self, edit: Edit) {
         self.doc.apply(edit);
-        self.calculator.recalculate(&mut self.doc.workbook);
+        if let Some(edit) = self.doc.history.last_undo() {
+            self.calculator.update(&mut self.doc.workbook, edit);
+        }
     }
 
     pub fn say(&mut self, message: impl Into<String>) {

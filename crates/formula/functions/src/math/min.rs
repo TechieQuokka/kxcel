@@ -1,4 +1,4 @@
-use excel_model::CellValue;
+use excel_model::{CellValue, Doc};
 
 use super::numbers;
 use crate::{Arg, Function};
@@ -10,8 +10,16 @@ impl Function for Min {
         "MIN"
     }
 
-    fn help(&self) -> &'static str {
-        "MIN(values...)  Smallest number"
+    fn doc(&self) -> Doc {
+        Doc {
+            category: "Math",
+            summary: "Smallest number",
+            usage: "MIN(values...)",
+            description: "The smallest of the numbers given. With no numbers, the result is 0.",
+            args: &[("values", "Numbers, cells, or ranges, separated by commas")],
+            examples: &[("=MIN(3, 9, 4)", "3"), ("=MIN(A1:A10)", "")],
+            related: &["MAX"],
+        }
     }
 
     /// The smallest number, or 0 when there are none, as in Excel.

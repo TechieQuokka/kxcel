@@ -92,12 +92,12 @@ fn book_with_stored(formula: &str, stored: f64) -> Workbook {
 
 #[test]
 fn unknown_functions_keep_their_formula_and_stored_value() {
-    let mut book = book_with_stored("VLOOKUP(1,C1:D9,2)", 42.0);
+    let mut book = book_with_stored("NOSUCH(1,C1:D9,2)", 42.0);
     FormulaEngine::default().recalculate(&mut book);
     let cell = book.active().get("A1".parse().unwrap()).unwrap();
     assert_eq!(cell.value, number(42.0));
     assert!(cell.uncalculated);
-    assert_eq!(cell.formula_text(), Some("VLOOKUP(1,C1:D9,2)"));
+    assert_eq!(cell.formula_text(), Some("NOSUCH(1,C1:D9,2)"));
     assert_eq!(book.active().value("B1".parse().unwrap()), &number(84.0), "dependents use the stored value");
 }
 

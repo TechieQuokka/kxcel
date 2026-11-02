@@ -37,8 +37,8 @@ fn encode(workbook: &Workbook) -> Result<Vec<u8>, rust_xlsxwriter::XlsxError> {
         }
         for (addr, cell) in sheet.iter() {
             match &cell.input {
-                CellInput::Literal(value) => cells::write_value(target, addr, value)?,
-                CellInput::Formula(text) => formulas::write_formula(target, addr, text, &cell.value)?,
+                CellInput::Literal(value) => cells::write_value(target, addr, value, cell.format)?,
+                CellInput::Formula(text) => formulas::write_formula(target, addr, text, &cell.value, cell.format)?,
             }
         }
     }

@@ -1,4 +1,4 @@
-use excel_model::CellValue;
+use excel_model::{CellValue, Doc};
 
 use super::numbers;
 use crate::{Arg, Function};
@@ -10,8 +10,16 @@ impl Function for Max {
         "MAX"
     }
 
-    fn help(&self) -> &'static str {
-        "MAX(values...)  Largest number"
+    fn doc(&self) -> Doc {
+        Doc {
+            category: "Math",
+            summary: "Largest number",
+            usage: "MAX(values...)",
+            description: "The largest of the numbers given. With no numbers, the result is 0.",
+            args: &[("values", "Numbers, cells, or ranges, separated by commas")],
+            examples: &[("=MAX(3, 9, 4)", "9"), ("=MAX(A1:A10)", "")],
+            related: &["MIN"],
+        }
     }
 
     /// The largest number, or 0 when there are none, as in Excel.

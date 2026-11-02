@@ -1,4 +1,5 @@
 use excel_command::{Command, CommandError, Context, Effect};
+use excel_model::Doc;
 use excel_model::{Cell, CellAddr};
 
 pub(crate) struct Find;
@@ -8,8 +9,17 @@ impl Command for Find {
         "find"
     }
 
-    fn help(&self) -> &str {
-        "Move to the next match: find apple"
+    fn doc(&self) -> Doc {
+        Doc {
+            category: "Navigate",
+            summary: "Move to the next cell containing text",
+            usage: "find <text>",
+            description: "Searches shown values and formula text, ignoring case, from just after the cursor \
+                          and wrapping around. Running it again moves to the next match.",
+            args: &[("text", "What to look for. The rest of the line")],
+            examples: &[("find apple", ""), ("find =SUM", "")],
+            related: &["goto"],
+        }
     }
 
     /// Searches shown values and formula text, ignoring case, from just after
@@ -35,7 +45,7 @@ impl Command for Find {
 }
 
 fn matches(cell: &Cell, needle: &str) -> bool {
-    cell.value.to_string().to_lowercase().contains(needle) || cell.input_text().to_lowercase().contains(needle)
+    cell.display().to_lowercase().contains(needle) || cell.input_text().to_lowercase().contains(needle)
 }
 
 #[cfg(test)]
