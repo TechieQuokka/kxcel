@@ -713,7 +713,7 @@ mod tests {
         h.typed("=SUM(1, 2");
         h.key(Key::Tab);
         assert!(h.app.grid.is_editing());
-        assert!(h.app.command_line.message().is_some_and(|text| text.contains("Closed 1 parenthesis")));
+        assert!(h.app.command_line.message().is_some_and(|text| text.contains("Closed the parenthesis")));
         h.key(Key::Enter);
         assert_eq!(h.value("A1"), CellValue::Number(3.0));
     }

@@ -11,7 +11,7 @@ const KEYS: [(&str, &str); 19] = [
     ("F11", "Full screen on or off"),
     ("Ctrl+L", "Go to the command line"),
     ("Esc", "Back to the grid, or cancel an edit"),
-    ("Tab", "Complete a command, path, or function, or close open parentheses"),
+    ("Tab", "Complete a command, path, or function, or close one open parenthesis"),
     ("Ctrl+S", "Save, same as the save command"),
     ("Enter", "Finish an edit and move down"),
     ("Alt+Enter", "New line inside a cell"),

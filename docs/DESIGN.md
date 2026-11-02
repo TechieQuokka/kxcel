@@ -1,7 +1,7 @@
 # kxcel: Design Document
 
-Status: implemented through 1.19.0. Hand checks for 1.6.0 onward are listed in section 8.
-Version: 1.19.0. All crates share the workspace version. A new feature raises the
+Status: implemented through 1.19.1. Hand checks for 1.6.0 onward are listed in section 8.
+Version: 1.19.1. All crates share the workspace version. A new feature raises the
 minor version, such as 1.0.0 to 1.1.0, and a bug fix raises the patch version,
 such as 1.1.0 to 1.1.1.
 Last updated: 2026-11-02
@@ -153,10 +153,12 @@ Features outside this first version are added when real use calls for them.
   list. Since 1.15.2 the list opens from two letters, so `=` alone and a cell
   address such as `=A1` show nothing, and it shows at most eight functions,
   with a `+N more` line when more letters would narrow it
-- `Tab` closes parentheses a formula leaves open (1.16.0), such as
+- `Tab` closes a parenthesis a formula leaves open (1.16.0), such as
   `=SUM(A1:A3` to `=SUM(A1:A3)`, and stays in the cell with a note in the
-  command line, since where a parenthesis belongs can change the result. `Tab`
-  again finishes the edit. Parentheses inside quoted text do not count, and
+  command line, since where a parenthesis belongs can change the result. Since
+  1.19.1 it closes one per press, the innermost first, so `=SUM(A1, MAX(B1`
+  becomes `=SUM(A1, MAX(B1)` and more arguments can follow for `SUM`. With
+  none left open, `Tab` finishes the edit. Parentheses inside quoted text do not count, and
   with the function list open, `Tab` completes a function first. `Enter`, the
   arrows, and clicks enter the formula as typed, which shows `?` when it
   cannot be calculated

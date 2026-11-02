@@ -596,17 +596,24 @@ fn the_wheel_scrolls_by_whole_rows() {
 }
 
 #[test]
-fn tab_closes_open_parentheses_and_stays() {
+fn tab_closes_one_open_parenthesis_at_a_time_and_stays() {
     let mut h = Harness::new();
     h.typed("=SUM(A1:A3, MAX(B1");
     h.key(Key::Tab, Modifiers::NONE);
     h.frame(Vec::new());
-    assert!(h.state.is_editing(), "the closed formula waits to be checked");
-    assert_eq!(h.state.edit_text(), Some("=SUM(A1:A3, MAX(B1))"));
+    assert!(h.state.is_editing(), "the formula waits for more");
+    assert_eq!(h.state.edit_text(), Some("=SUM(A1:A3, MAX(B1)"), "only the innermost closes");
     assert_eq!(h.state.cursor, addr("A1"));
-    assert!(matches!(h.actions.last(), Some(GridAction::Notice(text)) if text.contains("Closed 2")));
+    assert!(matches!(h.actions.last(), Some(GridAction::Notice(text)) if text.contains("1 still open")));
+
+    h.typed(", C1");
     h.key(Key::Tab, Modifiers::NONE);
-    assert_eq!(h.actions.last(), Some(&commit("A1", "=SUM(A1:A3, MAX(B1))")));
+    h.frame(Vec::new());
+    assert_eq!(h.state.edit_text(), Some("=SUM(A1:A3, MAX(B1), C1)"), "the outer function took another argument");
+    assert!(matches!(h.actions.last(), Some(GridAction::Notice(text)) if text.contains("Press Tab or Enter")));
+
+    h.key(Key::Tab, Modifiers::NONE);
+    assert_eq!(h.actions.last(), Some(&commit("A1", "=SUM(A1:A3, MAX(B1), C1)")));
     assert_eq!(h.state.cursor, addr("B1"));
 }
 
@@ -632,5 +639,5 @@ fn completion_comes_before_closing_parentheses() {
     h.typed("1");
     h.key(Key::Tab, Modifiers::NONE);
     h.frame(Vec::new());
-    assert_eq!(h.state.edit_text(), Some("=SUM(MAX(1))"));
+    assert_eq!(h.state.edit_text(), Some("=SUM(MAX(1)"));
 }
