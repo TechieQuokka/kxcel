@@ -32,6 +32,12 @@ pub trait Calculator {
 
     /// Rewrites a formula living on `own_sheet` after `change` was made to `changed_sheet`.
     fn adjust(&self, formula: &str, own_sheet: &str, changed_sheet: &str, change: Structural) -> String;
+
+    /// Rewrites a formula after sheet `old` was renamed to `new`.
+    fn rename_sheet(&self, formula: &str, old: &str, new: &str) -> String;
+
+    /// Rewrites a formula after sheet `removed` was deleted, so references to it become `#REF!`.
+    fn remove_sheet(&self, formula: &str, removed: &str) -> String;
 }
 
 /// A workbook read from a file.

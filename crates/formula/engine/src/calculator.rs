@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use excel_command::{Calculator, Structural};
 use excel_edit::Edit;
 use excel_formula_functions::FunctionRegistry;
-use excel_formula_syntax::{Change, adjust, translate};
+use excel_formula_syntax::{Change, adjust, remove_sheet, rename_sheet, translate};
 use excel_model::{Doc, Workbook};
 
 use crate::graph::Graph;
@@ -69,5 +69,13 @@ impl Calculator for FormulaEngine {
             Structural::DeleteCols { at, count } => Change::DeleteCols { at, count },
         };
         adjust(formula, own_sheet, changed_sheet, change)
+    }
+
+    fn rename_sheet(&self, formula: &str, old: &str, new: &str) -> String {
+        rename_sheet(formula, old, new)
+    }
+
+    fn remove_sheet(&self, formula: &str, removed: &str) -> String {
+        remove_sheet(formula, removed)
     }
 }

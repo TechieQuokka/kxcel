@@ -53,6 +53,18 @@ pub fn show(ctx: &Context, dialog: &Dialog) -> Option<Choice> {
                     }
                 });
             }
+            Dialog::Confirm { confirmation: Confirmation::Ask { question, yes, .. }, .. } => {
+                ui.heading(question);
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    if ui.button(yes).clicked() {
+                        choice = Some(Choice::Proceed);
+                    }
+                    if ui.button("Cancel").clicked() {
+                        choice = Some(Choice::Dismiss);
+                    }
+                });
+            }
             Dialog::Confirm { confirmation: Confirmation::Loss { items, .. }, .. } => {
                 ui.heading("Some content will not be saved");
                 ui.add_space(6.0);

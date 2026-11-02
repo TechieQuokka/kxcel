@@ -158,3 +158,65 @@ fn window_commands_say_they_need_the_app() {
     );
     assert_eq!(stdout(&output), "1\n");
 }
+
+#[test]
+fn renaming_and_deleting_sheets_rewrites_formulas() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("t.xlsx");
+    let output = cli(&[
+        file.to_str().unwrap(),
+        "-c",
+        "sheet add 매출",
+        "-c",
+        "set A1 5",
+        "-c",
+        "sheet add Temp",
+        "-c",
+        "set A1 7",
+        "-c",
+        "sheet 1",
+        "-c",
+        "set A1 =매출!A1*2",
+        "-c",
+        "set B1 =Temp!A1",
+        "-c",
+        "sheet 2",
+        "-c",
+        "sheet rename 매출 2026",
+        "-c",
+        "sheet 3",
+        "-c",
+        "sheet delete",
+    ]);
+    assert_eq!(output.status.code(), Some(1), "delete asks first");
+    assert!(stderr(&output).contains("sheet delete!"), "{}", stderr(&output));
+
+    let mut commands: Vec<&str> = Vec::new();
+    for command in [
+        "sheet add 매출",
+        "set A1 5",
+        "sheet add Temp",
+        "set A1 7",
+        "sheet 1",
+        "set A1 =매출!A1*2",
+        "set B1 =Temp!A1",
+        "sheet 2",
+        "sheet rename 매출 2026",
+        "sheet 3",
+        "sheet delete!",
+        "sheet 1",
+    ] {
+        commands.extend(["-c", command]);
+    }
+    let mut args = vec![file.to_str().unwrap()];
+    args.extend(commands);
+    args.push("-p");
+    let output = cli(&args);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let printed = stdout(&output);
+    assert!(printed.contains("Renamed sheet 매출 to 매출 2026\nSheet Temp\nDeleted sheet Temp"), "{printed}");
+    assert!(
+        printed.ends_with("\n10\t#REF!\n"),
+        "the renamed sheet still answers, and the deleted one is #REF!: {printed}"
+    );
+}

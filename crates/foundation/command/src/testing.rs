@@ -21,6 +21,14 @@ impl Calculator for NoCalculator {
     fn adjust(&self, formula: &str, _own: &str, _changed: &str, _change: Structural) -> String {
         formula.to_owned()
     }
+
+    fn rename_sheet(&self, formula: &str, _old: &str, _new: &str) -> String {
+        formula.to_owned()
+    }
+
+    fn remove_sheet(&self, formula: &str, _removed: &str) -> String {
+        formula.to_owned()
+    }
 }
 
 /// A store with no files. Every operation fails.

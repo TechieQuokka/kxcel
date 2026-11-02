@@ -38,6 +38,42 @@ pub fn adjust(formula: &str, own_sheet: &str, changed_sheet: &str, change: Chang
     expr.to_string()
 }
 
+/// Rewrites references naming sheet `old` to name `new`, ignoring case.
+/// References without a sheet name are left alone. Text that does not parse
+/// is returned unchanged.
+pub fn rename_sheet(formula: &str, old: &str, new: &str) -> String {
+    let Ok(mut expr) = parse(formula) else {
+        return formula.to_owned();
+    };
+    map_references(&mut expr, &mut |reference| match reference {
+        Expr::Cell { sheet: Some(name), cell } if name.eq_ignore_ascii_case(old) => {
+            Expr::Cell { sheet: Some(new.to_owned()), cell: *cell }
+        }
+        Expr::Range { sheet: Some(name), start, end } if name.eq_ignore_ascii_case(old) => {
+            Expr::Range { sheet: Some(new.to_owned()), start: *start, end: *end }
+        }
+        other => other.clone(),
+    });
+    expr.to_string()
+}
+
+/// Turns references naming sheet `removed` into `#REF!`, as Excel does when a
+/// sheet is deleted. Text that does not parse is returned unchanged.
+pub fn remove_sheet(formula: &str, removed: &str) -> String {
+    let Ok(mut expr) = parse(formula) else {
+        return formula.to_owned();
+    };
+    map_references(&mut expr, &mut |reference| match reference {
+        Expr::Cell { sheet: Some(name), .. } | Expr::Range { sheet: Some(name), .. }
+            if name.eq_ignore_ascii_case(removed) =>
+        {
+            ref_error()
+        }
+        other => other.clone(),
+    });
+    expr.to_string()
+}
+
 fn map_references(expr: &mut Expr, map: &mut impl FnMut(&Expr) -> Expr) {
     match expr {
         Expr::Cell { .. } | Expr::Range { .. } => *expr = map(expr),

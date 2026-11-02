@@ -10,7 +10,7 @@ const KEYS: [(&str, &str); 19] = [
     ("F1", "Show or hide this help"),
     ("F11", "Full screen on or off"),
     ("Ctrl+L", "Go to the command line"),
-    ("Esc", "Back to the grid, or cancel an edit"),
+    ("Esc", "Back to the grid from the command line or help search, or cancel an edit"),
     ("Tab", "Complete a command, path, or function, or close one open parenthesis"),
     ("Ctrl+S", "Save, same as the save command"),
     ("Enter", "Finish an edit and move down"),

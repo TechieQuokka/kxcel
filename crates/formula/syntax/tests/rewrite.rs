@@ -1,4 +1,4 @@
-use excel_formula_syntax::{Change, adjust, translate};
+use excel_formula_syntax::{Change, adjust, remove_sheet, rename_sheet, translate};
 
 #[test]
 fn translation_moves_relative_references() {
@@ -67,4 +67,18 @@ fn only_references_to_the_changed_sheet_move() {
     assert_eq!(adjust("A1+Other!A1", "S", "S", change), "A2+Other!A1");
     assert_eq!(adjust("A1+S!A1", "Other", "S", change), "A1+S!A2");
     assert_eq!(adjust("A1+s!A1", "Other", "S", change), "A1+s!A2");
+}
+
+#[test]
+fn renaming_a_sheet_rewrites_references_to_it() {
+    assert_eq!(rename_sheet("매출!A1+SUM(매출!B1:B3)+A1", "매출", "매출2026"), "매출2026!A1+SUM(매출2026!B1:B3)+A1");
+    assert_eq!(rename_sheet("data!A1+Other!A1", "Data", "New Name"), "'New Name'!A1+Other!A1");
+    assert_eq!(rename_sheet("'Old one'!A1", "old one", "x"), "x!A1");
+    assert_eq!(rename_sheet("1+", "a", "b"), "1+");
+}
+
+#[test]
+fn removing_a_sheet_turns_references_to_it_into_ref_errors() {
+    assert_eq!(remove_sheet("매출!A1+A1", "매출"), "#REF!+A1");
+    assert_eq!(remove_sheet("SUM(Gone!A1:A3, Kept!A1)", "gone"), "SUM(#REF!,Kept!A1)");
 }

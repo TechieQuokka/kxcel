@@ -1,7 +1,7 @@
 # kxcel: Design Document
 
-Status: implemented through 1.19.1. Hand checks for 1.6.0 onward are listed in section 8.
-Version: 1.19.1. All crates share the workspace version. A new feature raises the
+Status: implemented through 1.20.0. Hand checks for 1.6.0 onward are listed in section 8.
+Version: 1.20.0. All crates share the workspace version. A new feature raises the
 minor version, such as 1.0.0 to 1.1.0, and a bug fix raises the patch version,
 such as 1.1.0 to 1.1.1.
 Last updated: 2026-11-02
@@ -189,7 +189,7 @@ line put back, so it can be fixed and run again (1.6.0).
 | `goto` | Move to a cell |
 | `insert` | Insert rows or columns |
 | `delete` | Delete rows or columns |
-| `sheet` | List, switch, or add sheets |
+| `sheet` | List, switch, add, rename, or delete sheets. `sheet rename <name>` and `sheet delete` act on the sheet showing (1.20.0) |
 | `fullscreen` | Full screen: `fullscreen on`, `fullscreen off`, or just `fullscreen` to switch, as `F11` does (1.18.0) |
 | `theme` | Colors: `theme dark`, `theme light`, or just `theme` to switch. Remembered for the next start (1.19.0) |
 | `set` | Set a cell, so `kxcel-cli` can enter data. It takes the rest of its line as typed, so quotes in formulas stay (1.15.1) |
@@ -201,8 +201,11 @@ same one closing the window shows, and `save` over a file with content the app
 cannot keep asks "Save anyway / Cancel". Saving first from the dialog asks that
 second question too when it applies, then carries on.
 
-A trailing `!` goes ahead without asking: `save!` saves over such a file, and
-`exit!` and `open!` discard unsaved changes. `kxcel-cli` cannot show dialogs,
+`sheet delete` asks "Delete sheet ...? / Delete / Cancel" (1.20.0), since only
+undo can bring the sheet back.
+
+A trailing `!` goes ahead without asking: `save!` saves over such a file,
+`exit!` and `open!` discard unsaved changes, and `sheet delete!` deletes. `kxcel-cli` cannot show dialogs,
 so scripts use these forms, and its errors name them.
 
 Commands do not know about dialogs. A command that stops to ask returns a
@@ -224,6 +227,12 @@ Picking a folder lists its contents next. A path with spaces is quoted, and
 ### Files
 
 - Read and write `.xlsx`, including multiple sheets
+- Sheets (1.20.0): `sheet rename <name>` renames the sheet showing and updates
+  every formula that names it, such as `=매출!A1`, quoting a new name with
+  spaces. `sheet delete` deletes the sheet showing after asking, turns
+  references to it into `#REF!`, and moves to the sheet before. The only sheet
+  cannot be deleted. Both rewrite formulas through the `Calculator`, as insert
+  and delete do, and undo brings everything back
 - Read and write `.csv` (1.8.0). Opening gives one sheet named after the file,
   with numbers, `TRUE`/`FALSE`, and error values recognized and the rest kept as
   text, including text starting with `=`. Saving writes the active sheet's

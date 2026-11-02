@@ -22,12 +22,15 @@ pub enum Confirmation {
     UnsavedChanges { action: String, proceed: String },
     /// Saving over the file would lose this content.
     Loss { items: Vec<String>, proceed: String },
+    /// Something that cannot be taken back without undo, such as deleting a
+    /// sheet. `question` is asked, and `yes` names the button that goes ahead.
+    Ask { question: String, yes: String, proceed: String },
 }
 
 impl Confirmation {
     pub fn proceed(&self) -> &str {
         match self {
-            Self::UnsavedChanges { proceed, .. } | Self::Loss { proceed, .. } => proceed,
+            Self::UnsavedChanges { proceed, .. } | Self::Loss { proceed, .. } | Self::Ask { proceed, .. } => proceed,
         }
     }
 }

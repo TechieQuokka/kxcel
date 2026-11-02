@@ -708,6 +708,28 @@ mod tests {
     }
 
     #[test]
+    fn deleting_a_sheet_asks_with_a_dialog() {
+        let mut h = blank();
+        h.run_line("sheet add 매출");
+        h.run_line("sheet delete");
+        assert!(matches!(
+            &h.app.dialog,
+            Some(Dialog::Confirm { confirmation: excel_command::Confirmation::Ask { question, .. }, .. })
+                if question == "Delete sheet 매출?"
+        ));
+        h.key(Key::Escape);
+        assert_eq!(h.app.doc.workbook.sheets().len(), 2, "escape keeps the sheet");
+
+        h.run_line("sheet delete");
+        answer(&mut h, dialogs::Choice::Proceed);
+        assert_eq!(h.app.doc.workbook.sheets().len(), 1);
+        assert_eq!(h.app.command_line.message(), Some("Deleted sheet 매출"));
+        h.key(Key::Escape);
+        h.key_with(Key::Z, Modifiers::COMMAND);
+        assert_eq!(h.app.doc.workbook.sheets().len(), 2, "undo brings it back");
+    }
+
+    #[test]
     fn tab_closes_parentheses_and_says_so() {
         let mut h = blank();
         h.typed("=SUM(1, 2");
