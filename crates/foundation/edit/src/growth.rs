@@ -39,6 +39,23 @@ pub fn with_table_growth(sheets: &[Sheet], edit: Edit) -> Edit {
     Edit::Batch(growth)
 }
 
+/// The edit that adds an empty row to the table whose last row holds `addr`,
+/// as `Enter` does after an edit there. `None` when `addr` is not in a
+/// table's last row, or the new row would leave the sheet or meet another table.
+pub fn add_table_row(sheet: &Sheet, index: usize, addr: CellAddr) -> Option<Edit> {
+    let position = sheet.tables().iter().position(|table| table.range.contains(addr))?;
+    let range = sheet.tables()[position].range;
+    let row = range.end.row.checked_add(1).filter(|row| *row < MAX_ROWS && addr.row == range.end.row)?;
+    let line = CellRange::new(CellAddr::new(row, range.start.col), CellAddr::new(row, range.end.col));
+    if sheet.tables().iter().any(|table| table.range.overlaps(line)) {
+        return None;
+    }
+    let before = sheet.meta().clone();
+    let mut after = before.clone();
+    after.tables[position].range.end.row = row;
+    Some(Edit::SetMeta { sheet: index, before, after })
+}
+
 fn fills(change: &CellChange) -> bool {
     change.after.as_ref().is_some_and(|cell| cell.formula_text().is_some() || !cell.value.is_empty())
 }
@@ -146,6 +163,22 @@ mod tests {
         assert!(doc.undo());
         assert_eq!(range(&doc), "A1:B3");
         assert!(doc.workbook.active().get(addr("A4")).is_none());
+        assert!(doc.redo());
+        assert_eq!(range(&doc), "A1:B4");
+    }
+
+    #[test]
+    fn enter_in_the_last_row_adds_one_joined_to_the_edit() {
+        let mut doc = doc_with_table("A1:B3");
+        assert!(add_table_row(doc.workbook.active(), 0, addr("B2")).is_none(), "not the last row");
+        assert!(add_table_row(doc.workbook.active(), 0, addr("C3")).is_none(), "outside the table");
+        set(&mut doc, &[("B3", "7")]);
+        let edit = add_table_row(doc.workbook.active(), 0, addr("B3")).unwrap();
+        doc.apply_joined(edit);
+        assert_eq!(range(&doc), "A1:B4");
+        assert!(doc.undo());
+        assert_eq!(range(&doc), "A1:B3");
+        assert!(doc.workbook.active().get(addr("B3")).is_none(), "one undo takes back both");
         assert!(doc.redo());
         assert_eq!(range(&doc), "A1:B4");
     }

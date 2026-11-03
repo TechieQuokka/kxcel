@@ -3,7 +3,7 @@
 mod selection_stats;
 
 use egui::{Align, Layout, RichText, Ui};
-use excel_model::{CellAddr, CellRange, Sheet, format_number};
+use excel_model::{CellAddr, CellRange, Sheet, format_number_grouped};
 
 pub use selection_stats::{SelectionStats, selection_stats, table_rows};
 
@@ -26,8 +26,8 @@ pub fn show(ui: &mut Ui, sheet: &Sheet, cursor: CellAddr, selection: CellRange, 
             if let Some(stats) = selection_stats(sheet, selection) {
                 let text = format!(
                     "Sum {}  Avg {}  Count {}",
-                    format_number(stats.sum),
-                    format_number(stats.average),
+                    format_number_grouped(stats.sum),
+                    format_number_grouped(stats.average),
                     stats.count
                 );
                 ui.label(RichText::new(text).monospace());

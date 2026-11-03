@@ -29,14 +29,17 @@ pub(crate) fn read_meta<R: Read + Seek>(archive: &mut ZipArchive<R>) -> Result<F
     let mut found = FileMeta::default();
     let mut unsupported_filters = false;
     let mut headerless = false;
-    let unlocked = read_part(archive, "xl/styles.xml").map(|styles| unlocked_styles(&styles)).unwrap_or_default();
+    let styles = read_part(archive, "xl/styles.xml").unwrap_or_default();
+    let unlocked = unlocked_styles(&styles);
+    let plain = plain_styles(&styles);
     for (name, part) in sheet_parts(archive)? {
         let Ok(xml) = read_part(archive, &part) else {
             continue;
         };
         let mut meta = SheetMeta {
             hidden_rows: hidden_rows(&xml),
-            input_cells: input_cells(&xml, &unlocked),
+            input_cells: styled_cells(&xml, &unlocked),
+            plain_cells: styled_cells(&xml, &plain),
             ..Default::default()
         };
         for table_part in related(archive, &part, "/table")? {
@@ -153,13 +156,45 @@ pub(crate) fn unlocked_styles(styles: &str) -> HashSet<String> {
         .collect()
 }
 
+/// The cell styles, by index, with a plain whole-number format such as `0`
+/// or `0.00`: cells this application shows without commas.
+pub(crate) fn plain_styles(styles: &str) -> HashSet<String> {
+    let custom: HashSet<String> = elements(styles, "numFmt")
+        .filter(|format| attribute(format, "formatCode").is_some_and(|code| is_plain_code(&code)))
+        .filter_map(|format| attribute(format, "numFmtId"))
+        .collect();
+    let Some(cell_xfs) = section(styles, "cellXfs") else {
+        return HashSet::new();
+    };
+    elements(cell_xfs, "xf")
+        .enumerate()
+        .filter(|(_, xf)| {
+            raw_attribute(xf, "numFmtId").is_some_and(|id| matches!(id, "1" | "2") || custom.contains(id))
+        })
+        .map(|(index, _)| index.to_string())
+        .collect()
+}
+
+/// `0`, `0.0`, `0.00`, and so on.
+pub(crate) fn is_plain_code(code: &str) -> bool {
+    let (whole, fraction) = code.split_once('.').unwrap_or((code, ""));
+    whole == "0" && fraction.chars().all(|c| c == '0') && (fraction.is_empty() == !code.contains('.'))
+}
+
+/// `#,##0`, `#,##0.00`, and so on.
+pub(crate) fn is_comma_code(code: &str) -> bool {
+    let (whole, fraction) = code.split_once('.').unwrap_or((code, ""));
+    whole == "#,##0" && fraction.chars().all(|c| c == '0') && (fraction.is_empty() == !code.contains('.'))
+}
+
 /// Whether a whole `xf` element unlocks its cells.
 pub(crate) fn is_unlocked(xf: &str) -> bool {
     elements(xf, "protection").any(|protection| matches!(raw_attribute(protection, "locked"), Some("0" | "false")))
 }
 
-/// Cells and whole columns whose style unlocks them: the input cells of an app.
-fn input_cells(sheet: &str, unlocked: &HashSet<String>) -> RangeSet {
+/// Cells and whole columns whose style is one of `styles`, such as the
+/// unlocked input cells of an app.
+fn styled_cells(sheet: &str, unlocked: &HashSet<String>) -> RangeSet {
     if unlocked.is_empty() {
         return RangeSet::default();
     }
@@ -433,8 +468,26 @@ mod tests {
         assert_eq!(unlocked, HashSet::from(["1".to_owned()]));
         let sheet = r#"<cols><col min="5" max="5" style="1"/></cols><sheetData><row r="2"><c r="B2" s="1"/><c r="C2" s="1"><v>1</v></c><c r="D2" s="2"/></row>
             <row r="3"><c r="B3" s="1"/><c r="C3" s="1"/></row></sheetData>"#;
-        let ranges: Vec<String> = input_cells(sheet, &unlocked).ranges().iter().map(|r| r.to_string()).collect();
+        let ranges: Vec<String> = styled_cells(sheet, &unlocked).ranges().iter().map(|r| r.to_string()).collect();
         assert_eq!(ranges, ["E1:E1048576", "B2:C3"]);
+    }
+
+    #[test]
+    fn recognizes_plain_and_comma_codes() {
+        for code in ["0", "0.00"] {
+            assert!(is_plain_code(code) && !is_comma_code(code), "{code}");
+        }
+        for code in ["#,##0", "#,##0.0"] {
+            assert!(is_comma_code(code) && !is_plain_code(code), "{code}");
+        }
+        for code in ["0.", "00", "#,##0.#", "General", "0%"] {
+            assert!(!is_plain_code(code) && !is_comma_code(code), "{code}");
+        }
+        let styles = r#"<numFmts><numFmt numFmtId="164" formatCode="0.000"/></numFmts>
+            <cellXfs><xf numFmtId="0"/><xf numFmtId="1"/><xf numFmtId="164"/><xf numFmtId="3"/></cellXfs>"#;
+        let mut plain: Vec<String> = plain_styles(styles).into_iter().collect();
+        plain.sort();
+        assert_eq!(plain, ["1", "2"]);
     }
 
     #[test]

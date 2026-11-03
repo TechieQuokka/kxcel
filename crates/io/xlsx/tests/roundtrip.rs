@@ -269,3 +269,28 @@ fn unlocked_cells_from_another_writer_are_input_cells() {
     assert_eq!(ranges, ["A1:A2"]);
     assert!(!loaded.loss_warnings.contains(&"cell formatting".to_owned()), "{:?}", loaded.loss_warnings);
 }
+
+#[test]
+fn plain_cells_and_comma_numbers_survive() {
+    let mut sheet = Sheet::new("Years");
+    for (at, text) in [("A1", "2026"), ("A2", "1999.5"), ("B1", "1234567"), ("B2", "1234.25"), ("C3", "2025")] {
+        sheet.set(at.parse().unwrap(), Cell::parse_input(text));
+    }
+    let mut meta = sheet.meta().clone();
+    meta.plain_cells.add("A1:A1048576".parse().unwrap());
+    meta.plain_cells.add("C2:C4".parse().unwrap());
+    sheet.set_meta(meta);
+    let book = Workbook::from_sheets(vec![sheet]);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("years.xlsx");
+    XlsxStore.save(&book, &path).unwrap();
+    let loaded = XlsxStore.load(&path).unwrap();
+    assert_eq!(loaded.workbook, book);
+    assert!(loaded.loss_warnings.is_empty(), "{:?}", loaded.loss_warnings);
+    let sheet = loaded.workbook.active();
+    let shown = |at: &str| sheet.shown(at.parse().unwrap());
+    assert_eq!(
+        [shown("A1"), shown("A2"), shown("B1"), shown("B2"), shown("C3")],
+        ["2026", "1999.5", "1,234,567", "1,234.25", "2025"]
+    );
+}

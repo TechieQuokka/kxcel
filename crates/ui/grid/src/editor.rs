@@ -68,6 +68,9 @@ pub(crate) fn before_text_input(ui: &Ui, state: &mut GridState, actions: &mut Ve
             actions.push(GridAction::RunCommand("table create".into()));
         }
         let selection = state.selection();
+        // The menu's Paste values marks the next paste, whenever it arrives.
+        let pasting = i.events.iter().any(|event| matches!(event, Event::Paste(_)));
+        let paste_values = pasting && std::mem::take(&mut state.paste_values);
         i.events.retain(|event| match event {
             Event::Copy => {
                 actions.push(GridAction::Copy(selection));
@@ -78,7 +81,12 @@ pub(crate) fn before_text_input(ui: &Ui, state: &mut GridState, actions: &mut Ve
                 false
             }
             Event::Paste(text) => {
-                actions.push(GridAction::Paste { at: selection.start, text: text.clone() });
+                let (at, text) = (selection.start, text.clone());
+                actions.push(if paste_values {
+                    GridAction::PasteValues { at, text }
+                } else {
+                    GridAction::Paste { at, text }
+                });
                 false
             }
             _ => true,
@@ -219,6 +227,10 @@ fn keys_while_editing(ui: &Ui, state: &mut GridState, sheet: &Sheet, actions: &m
         let addr = state.cursor;
         let text = state.take_text();
         actions.push(GridAction::Commit { addr, text });
+        let last_table_row = sheet.table_at(addr).is_some_and(|table| table.range.end.row == addr.row);
+        if enter && !shift && last_table_row {
+            actions.push(GridAction::AddTableRow(addr));
+        }
         if by_key {
             state.step(rows, cols, sheet);
         } else {

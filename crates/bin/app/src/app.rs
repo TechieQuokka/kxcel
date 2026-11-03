@@ -60,6 +60,9 @@ pub struct ExcelApp {
     /// Where the cursor was last frame. In app mode, a message stays in the
     /// status bar until the cursor moves.
     last_cursor: excel_model::CellAddr,
+    /// The cell the latest grid action changed by finishing an edit, so a
+    /// table row added after it joins its undo step.
+    committed: Option<excel_model::CellAddr>,
 }
 
 impl ExcelApp {
@@ -116,6 +119,7 @@ impl ExcelApp {
             title: String::new(),
             app_mode: None,
             last_cursor: Default::default(),
+            committed: None,
         }
     }
 
@@ -252,7 +256,19 @@ impl ExcelApp {
         };
         let calculator = &self.services.calculator;
         match action {
-            GridAction::Commit { addr, text } => actions::commit(&mut self.doc, calculator, addr, &text),
+            GridAction::Commit { addr, text } => {
+                let changed = actions::commit(&mut self.doc, calculator, addr, &text);
+                self.committed = changed.then_some(addr);
+            }
+            GridAction::AddTableRow(addr) => {
+                // Only right after the edit it follows, so they undo together.
+                let index = self.doc.workbook.active_index();
+                if self.committed.take() == Some(addr)
+                    && let Some(edit) = excel_edit::add_table_row(self.doc.workbook.active(), index, addr)
+                {
+                    self.doc.apply_joined(edit);
+                }
+            }
             GridAction::Clear(range) => actions::clear(&mut self.doc, calculator, range),
             GridAction::Fill { source, target, alternate } => {
                 actions::fill(&mut self.doc, calculator, source, target, alternate)
@@ -260,6 +276,8 @@ impl ExcelApp {
             GridAction::Copy(range) => self.capture(ctx, range, false),
             GridAction::Cut(range) => self.capture(ctx, range, true),
             GridAction::Paste { at, text } => actions::paste(&mut self.doc, calculator, &mut self.copied, at, &text),
+            GridAction::PasteValues { at, text } => actions::paste(&mut self.doc, calculator, &mut None, at, &text),
+            GridAction::RequestPaste => ctx.send_viewport_cmd(ViewportCommand::RequestPaste),
             GridAction::ResizeColumn { col, width } => {
                 self.doc.workbook.active_mut().set_col_width(col, width);
                 self.doc.dirty = true;
@@ -303,7 +321,7 @@ impl ExcelApp {
                 actions::clear_within(&mut self.doc, calculator, range, &inputs);
                 None
             }
-            GridAction::Paste { at, text } => {
+            GridAction::Paste { at, text } | GridAction::PasteValues { at, text } => {
                 let inputs = sheet.meta().input_cells.clone();
                 let calculator = &self.services.calculator;
                 actions::paste_into(&mut self.doc, calculator, &mut self.copied, at, &text, |addr| {
@@ -312,7 +330,10 @@ impl ExcelApp {
                 None
             }
             GridAction::Cut(range) => Some(GridAction::Copy(range)),
-            GridAction::Fill { .. } | GridAction::RunCommand(_) | GridAction::FocusCommandLine => None,
+            GridAction::Fill { .. }
+            | GridAction::RunCommand(_)
+            | GridAction::FocusCommandLine
+            | GridAction::AddTableRow(_) => None,
             action => Some(action),
         }
     }
@@ -393,7 +414,7 @@ impl ExcelApp {
         if let Some(text) = self.grid.edit_text() {
             return text.replace('\n', " \u{21b5} ");
         }
-        self.doc.workbook.active().display(self.grid.cursor).replace('\n', " \u{21b5} ")
+        self.doc.workbook.active().shown(self.grid.cursor).replace('\n', " \u{21b5} ")
     }
 
     fn raw_content(&self) -> String {
@@ -1369,6 +1390,52 @@ mod tests {
         assert_eq!((1..=3).filter(|row| !sheet.is_row_hidden(*row)).count(), 1);
         h.key_with(Key::Z, Modifiers::COMMAND);
         assert!(!h.app.doc.workbook.active().is_row_hidden(1), "undo works as for a typed command");
+    }
+
+    #[test]
+    fn enter_in_a_tables_last_row_adds_a_row() {
+        let mut h = blank();
+        h.enter_cell("이름");
+        h.enter_cell("사과");
+        h.run_line("set B1 가격");
+        h.key(Key::Escape);
+        h.drag(cell_center(0, 0), cell_center(1, 1));
+        h.key_with(Key::T, Modifiers::COMMAND);
+        let range = |h: &Harness| h.app.doc.workbook.active().tables()[0].range.to_string();
+        assert_eq!(range(&h), "A1:B2");
+        h.key(Key::Escape);
+        h.key(Key::ArrowLeft);
+        assert_eq!(h.app.grid.cursor.to_string(), "A2");
+        h.key(Key::Tab);
+        h.enter_cell("3");
+        assert_eq!(range(&h), "A1:B3", "Enter after an edit in the last row adds one");
+        assert_eq!(h.app.grid.cursor.to_string(), "A3", "and goes to its first column after the Tab");
+        h.key(Key::ArrowUp);
+        h.key(Key::Enter);
+        assert_eq!(range(&h), "A1:B3", "moving with Enter without an edit adds nothing");
+        h.key_with(Key::Z, Modifiers::COMMAND);
+        assert_eq!(range(&h), "A1:B2", "one undo takes back the row and the edit");
+        assert_eq!(h.value("B2"), CellValue::Empty);
+    }
+
+    #[test]
+    fn paste_values_leaves_formulas_behind() {
+        let mut h = blank();
+        h.enter_cell("1234");
+        h.run_line("set B1 =A1*2");
+        h.run_line("goto B1");
+        let output = h.frame(vec![Event::Copy]);
+        let copied = output.platform_output.commands.iter().find_map(|command| match command {
+            egui::OutputCommand::CopyText(text) => Some(text.clone()),
+            _ => None,
+        });
+        assert_eq!(copied.as_deref(), Some("2,468"), "copies what shows, commas included");
+        let ctx = h.ctx.clone();
+        let at = "B2".parse().unwrap();
+        h.app.apply_grid_action(&ctx, GridAction::PasteValues { at, text: copied.unwrap() });
+        let cell = h.app.doc.workbook.active().get(at).unwrap().clone();
+        assert_eq!(cell.input_text(), "2468", "a number, not the formula");
+        h.app.apply_grid_action(&ctx, GridAction::RequestPaste);
     }
 
     #[test]

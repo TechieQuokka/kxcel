@@ -843,7 +843,7 @@ fn right_click(h: &mut Harness, pos: Pos2) {
 }
 
 #[test]
-fn right_click_menu_makes_the_selection_a_table() {
+fn right_click_menu_acts_on_the_selection() {
     let mut h = Harness::new();
     h.press_at(cell_center(0, 0));
     h.drag_to(cell_center(2, 1));
@@ -854,7 +854,7 @@ fn right_click_menu_makes_the_selection_a_table() {
     assert_eq!(h.state.selection().to_string(), "A1:B3", "a right click inside keeps the selection");
     h.press_at(cell_center(1, 1) + vec2(40.0, 14.0));
     h.release_at(cell_center(1, 1) + vec2(40.0, 14.0));
-    assert!(h.actions.contains(&GridAction::RunCommand("table create".into())));
+    assert!(h.actions.contains(&GridAction::Cut("A1:B3".parse().unwrap())), "the first item is Cut: {:?}", h.actions);
     assert!(!h.state.menu_open());
 }
 
@@ -872,22 +872,94 @@ fn right_click_outside_selects_that_cell_and_esc_closes() {
 }
 
 #[test]
-fn dragging_a_table_corner_resizes_it() {
+fn dragging_a_table_border_resizes_it() {
     let mut h = Harness::new();
     table_sheet(&mut h);
     h.frame(Vec::new());
-    // The mark sits just below the bottom right corner of A3.
-    let mark = pos2(56.0 + 96.0 - 3.0, 24.0 + 24.0 * 3.0 + 6.0);
-    h.press_at(mark);
-    h.drag_to(cell_center(5, 2));
-    h.drag_to(cell_center(5, 2));
-    h.release_at(cell_center(5, 2));
-    assert!(h.actions.contains(&GridAction::RunCommand("table resize A1:C6".into())), "{:?}", h.actions);
+    // The table is A1:A3: its right border is at x = 152, its bottom at y = 96.
+    let right = pos2(56.0 + 96.0, 24.0 + 24.0 * 1.5);
+    h.press_at(right);
+    h.drag_to(cell_center(1, 2) + vec2(40.0, 0.0));
+    h.drag_to(cell_center(1, 2) + vec2(40.0, 0.0));
+    h.release_at(cell_center(1, 2) + vec2(40.0, 0.0));
+    assert!(h.actions.contains(&GridAction::RunCommand("table resize A1:C3".into())), "{:?}", h.actions);
+    assert_eq!(h.state.selection().to_string(), "A1", "grabbing the border does not select");
+
     h.actions.clear();
-    h.press_at(mark);
-    h.release_at(mark);
+    let bottom = pos2(56.0 + 48.0, 24.0 + 24.0 * 3.0);
+    h.press_at(bottom);
+    h.drag_to(cell_center(5, 3));
+    h.drag_to(cell_center(5, 3));
+    h.release_at(cell_center(5, 3));
+    assert!(
+        h.actions.contains(&GridAction::RunCommand("table resize A1:A6".into())),
+        "the bottom border moves rows only"
+    );
+
+    h.actions.clear();
+    let corner = pos2(56.0 + 96.0 + 1.0, 24.0 + 24.0 * 3.0 + 1.0);
+    h.press_at(corner);
+    h.drag_to(cell_center(4, 1) + vec2(40.0, 10.0));
+    h.drag_to(cell_center(4, 1) + vec2(40.0, 10.0));
+    h.release_at(cell_center(4, 1) + vec2(40.0, 10.0));
+    assert!(h.actions.contains(&GridAction::RunCommand("table resize A1:B5".into())), "{:?}", h.actions);
+
+    h.actions.clear();
+    h.press_at(right);
+    h.release_at(right);
     assert!(
         h.actions.iter().all(|a| !matches!(a, GridAction::RunCommand(_))),
         "a click without a drag changes nothing"
     );
+    h.press_at(cell_center(1, 0));
+    h.release_at(cell_center(1, 0));
+    assert_eq!(h.state.cursor, addr("A2"), "a click inside the table still selects");
+}
+
+#[test]
+fn enter_in_a_tables_last_row_asks_for_a_row() {
+    let mut h = Harness::new();
+    table_sheet(&mut h);
+    h.state.go_to(addr("A3"));
+    h.frame(Vec::new());
+    h.typed("감");
+    h.key(Key::Enter, Modifiers::NONE);
+    assert_eq!(h.actions, [commit("A3", "감"), GridAction::AddTableRow(addr("A3"))]);
+    h.actions.clear();
+    for (at, key, modifiers) in
+        [("A3", Key::Enter, Modifiers::SHIFT), ("A3", Key::Tab, Modifiers::NONE), ("A2", Key::Enter, Modifiers::NONE)]
+    {
+        h.state.go_to(addr(at));
+        h.frame(Vec::new());
+        h.typed("x");
+        h.key(key, modifiers);
+    }
+    assert!(h.actions.iter().all(|a| !matches!(a, GridAction::AddTableRow(_))), "{:?}", h.actions);
+}
+
+#[test]
+fn menu_paste_asks_for_the_clipboard_and_paste_values_marks_the_answer() {
+    let mut h = Harness::new();
+    right_click(&mut h, cell_center(2, 1));
+    // Paste is the third item and Paste values the fourth, 23 points apart.
+    h.press_at(cell_center(2, 1) + vec2(40.0, 14.0 + 23.0 * 3.0));
+    h.release_at(cell_center(2, 1) + vec2(40.0, 14.0 + 23.0 * 3.0));
+    assert!(h.actions.contains(&GridAction::RequestPaste), "{:?}", h.actions);
+    h.actions.clear();
+    h.frame(vec![Event::Paste("=A1".into())]);
+    assert_eq!(h.actions, [GridAction::PasteValues { at: addr("B3"), text: "=A1".into() }]);
+    h.actions.clear();
+    h.frame(vec![Event::Paste("x".into())]);
+    assert_eq!(h.actions, [GridAction::Paste { at: addr("B3"), text: "x".into() }], "only that one paste");
+}
+
+#[test]
+fn right_clicking_a_row_or_column_header_selects_it() {
+    let mut h = Harness::new();
+    right_click(&mut h, pos2(20.0, 24.0 + 24.0 * 3.5));
+    assert_eq!(h.state.selection().to_string(), "A4:XFD4");
+    assert!(h.state.menu_open());
+    h.key(Key::Escape, Modifiers::NONE);
+    right_click(&mut h, pos2(56.0 + 96.0 * 2.5, 12.0));
+    assert_eq!(h.state.selection().to_string(), "C1:C1048576");
 }

@@ -45,9 +45,29 @@ impl Sheet {
         self.cells.get(&addr).map_or(&EMPTY, |cell| &cell.value)
     }
 
-    /// A cell's value as it is shown, following its format. Empty for no cell.
+    /// A cell's value following its format, without commas. Empty for no
+    /// cell. Used wherever the value's text matters, such as find, filters,
+    /// and CSV files.
     pub fn display(&self, addr: CellAddr) -> String {
         self.get(addr).map(Cell::display).unwrap_or_default()
+    }
+
+    /// A cell's value as the grid shows it: numbers get commas between groups
+    /// of three digits, unless the cell is plain or a date.
+    pub fn shown(&self, addr: CellAddr) -> String {
+        match self.get(addr) {
+            Some(cell) if cell.format == crate::NumberFormat::General && !self.is_plain(addr) => match cell.value {
+                CellValue::Number(n) => crate::format_number_grouped(n),
+                _ => cell.display(),
+            },
+            Some(cell) => cell.display(),
+            None => String::new(),
+        }
+    }
+
+    /// Whether numbers in this cell show without commas.
+    pub fn is_plain(&self, addr: CellAddr) -> bool {
+        self.meta.plain_cells.contains(addr)
     }
 
     pub fn set(&mut self, addr: CellAddr, cell: Option<Cell>) {
@@ -473,6 +493,27 @@ mod table_tests {
 #[cfg(test)]
 mod input_tests {
     use super::*;
+
+    #[test]
+    fn numbers_show_with_commas_unless_plain_or_dates() {
+        let mut sheet = Sheet::new("S");
+        for (at, text) in [("A1", "1234567"), ("A2", "2026-03-01"), ("A3", "abc"), ("B1", "2026"), ("A4", "=A1")] {
+            sheet.set(at.parse().unwrap(), Cell::parse_input(text));
+        }
+        sheet.get_mut("A4".parse().unwrap()).unwrap().value = CellValue::Number(1234567.0);
+        let shown = |sheet: &Sheet, at: &str| sheet.shown(at.parse().unwrap());
+        assert_eq!(shown(&sheet, "A1"), "1,234,567");
+        assert_eq!(shown(&sheet, "A4"), "1,234,567", "formula results too");
+        assert_eq!(shown(&sheet, "A2"), "2026-03-01");
+        assert_eq!(shown(&sheet, "A3"), "abc");
+        assert_eq!(sheet.display("A1".parse().unwrap()), "1234567", "display stays plain");
+        let mut meta = sheet.meta().clone();
+        meta.plain_cells.add("B1:B1048576".parse().unwrap());
+        sheet.set_meta(meta);
+        assert_eq!(shown(&sheet, "B1"), "2026");
+        sheet.insert_cols(0, 1);
+        assert_eq!(shown(&sheet, "C1"), "2026", "plain ranges move with columns");
+    }
 
     #[test]
     fn input_cells_move_with_inserted_and_deleted_rows_and_columns() {

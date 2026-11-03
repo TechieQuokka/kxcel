@@ -60,6 +60,15 @@ pub enum GridAction {
         at: CellAddr,
         text: String,
     },
+    /// Paste clipboard text as values only: formulas stay out, and the text
+    /// is read as if typed.
+    PasteValues {
+        at: CellAddr,
+        text: String,
+    },
+    /// Ask the system for the clipboard's text, as the menu's Paste does. It
+    /// comes back as a paste event.
+    RequestPaste,
     ResizeColumn {
         col: u32,
         width: f32,
@@ -72,6 +81,9 @@ pub enum GridAction {
     FocusGrid,
     /// Something to tell the user, such as parentheses closed by Tab.
     Notice(String),
+    /// An edit in a table's last row was finished with `Enter`, so the table
+    /// gains a row, in the same undo step as the edit. Follows the `Commit`.
+    AddTableRow(CellAddr),
     /// Run a command line, such as `table create` for `Ctrl+T`. The grid knows
     /// nothing about commands, so it only names the line.
     RunCommand(String),
@@ -127,7 +139,7 @@ pub fn show(
         let anchor = layout.cell_rect(popup.header).map_or(layout.body().min, |cell| cell.left_bottom());
         filter_popup::show(ui, &mut state.popup, anchor, &mut actions);
     }
-    menu::show(ui, state, &mut actions);
+    menu::show(ui, state, sheet, &mut actions);
     let focused = focused && state.popup.is_none() && state.menu.is_none();
 
     if focused {

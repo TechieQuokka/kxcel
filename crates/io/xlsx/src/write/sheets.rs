@@ -2,8 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use excel_command::StoreError;
-use excel_model::{CellAddr, CellInput, MAX_ROWS, Sheet, Table, Workbook, header_names};
-use rust_xlsxwriter::{Format, Table as XlsxTable, TableColumn, Workbook as XlsxWorkbook, Worksheet};
+use std::collections::BTreeSet;
+
+use excel_model::{CellAddr, CellInput, CellRange, MAX_ROWS, Sheet, Table, Workbook, header_names};
+use rust_xlsxwriter::{Table as XlsxTable, TableColumn, Workbook as XlsxWorkbook, Worksheet};
 
 use super::{cells, formulas};
 use crate::error::{file_error, require_xlsx};
@@ -37,13 +39,13 @@ fn encode(workbook: &Workbook) -> Result<Vec<u8>, rust_xlsxwriter::XlsxError> {
             target.set_column_width_pixels(col as u16, width.round() as u32)?;
         }
         for (addr, cell) in sheet.iter() {
-            let format = cells::cell_format(cell.format, sheet.is_input(addr));
+            let format = cells::cell_format(Some(cell), sheet.is_plain(addr), sheet.is_input(addr));
             match &cell.input {
                 CellInput::Literal(value) => cells::write_value(target, addr, value, format.as_ref())?,
                 CellInput::Formula(text) => formulas::write_formula(target, addr, text, &cell.value, format.as_ref())?,
             }
         }
-        write_empty_inputs(target, sheet)?;
+        write_empty_formatted(target, sheet)?;
         for row in sheet.hidden_rows().iter() {
             target.set_row_hidden(row)?;
         }
@@ -54,19 +56,25 @@ fn encode(workbook: &Workbook) -> Result<Vec<u8>, rust_xlsxwriter::XlsxError> {
     output.save_to_buffer()
 }
 
-/// Marks empty input cells unlocked. An input range covering whole columns
-/// is written as a column format rather than a million blank cells.
-fn write_empty_inputs(target: &mut Worksheet, sheet: &Sheet) -> Result<(), rust_xlsxwriter::XlsxError> {
-    let unlocked = Format::new().set_unlocked();
-    for range in sheet.meta().input_cells.ranges() {
-        if range.start.row == 0 && range.end.row == MAX_ROWS - 1 {
-            for col in range.start.col..=range.end.col {
-                target.set_column_format(col as u16, &unlocked)?;
-            }
-            continue;
+/// Gives empty input and plain cells their formats, so they keep them in the
+/// file. Ranges covering whole columns are written as column formats rather
+/// than a million blank cells.
+fn write_empty_formatted(target: &mut Worksheet, sheet: &Sheet) -> Result<(), rust_xlsxwriter::XlsxError> {
+    let meta = sheet.meta();
+    let whole = |range: &CellRange| range.start.row == 0 && range.end.row == MAX_ROWS - 1;
+    let ranges = || meta.input_cells.ranges().iter().chain(meta.plain_cells.ranges());
+    let columns: BTreeSet<u32> = ranges().filter(|r| whole(r)).flat_map(|r| r.start.col..=r.end.col).collect();
+    for col in columns {
+        let top = CellAddr::new(0, col);
+        if let Some(format) = cells::cell_format(None, sheet.is_plain(top), sheet.is_input(top)) {
+            target.set_column_format(col as u16, &format)?;
         }
-        for addr in range.iter().filter(|addr| sheet.get(*addr).is_none()) {
-            target.write_blank(addr.row, addr.col as u16, &unlocked)?;
+    }
+    let empty: BTreeSet<CellAddr> =
+        ranges().filter(|r| !whole(r)).flat_map(|r| r.iter()).filter(|addr| sheet.get(*addr).is_none()).collect();
+    for addr in empty {
+        if let Some(format) = cells::cell_format(None, sheet.is_plain(addr), sheet.is_input(addr)) {
+            target.write_blank(addr.row, addr.col as u16, &format)?;
         }
     }
     Ok(())

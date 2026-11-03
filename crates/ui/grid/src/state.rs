@@ -23,12 +23,16 @@ pub(crate) enum Drag {
     },
     ScrollVertical,
     ScrollHorizontal,
-    /// Dragging a table's corner mark. `start` is the table's top-left cell,
-    /// which stays, `end` where the corner is now, and `was` where it began.
+    /// Dragging a table's right or bottom border, or the corner where they
+    /// meet. `start` is the table's top-left cell, which stays, `end` where
+    /// its far corner is now, and `was` where it began. `rows` and `cols` say
+    /// which way the grabbed border moves.
     TableResize {
         start: CellAddr,
         end: CellAddr,
         was: CellAddr,
+        rows: bool,
+        cols: bool,
     },
 }
 
@@ -68,6 +72,9 @@ pub struct GridState {
     pub(crate) popup: Option<crate::FilterPopup>,
     /// The right-click menu, when open.
     pub(crate) menu: Option<crate::menu::ContextMenu>,
+    /// The menu asked for a paste of values only, which the clipboard's
+    /// answer then gets.
+    pub(crate) paste_values: bool,
     /// App mode: no headers, only input cells can be edited, and `Tab` and
     /// `Enter` move between input cells. Set by the application.
     pub app_mode: bool,
@@ -103,6 +110,7 @@ impl Default for GridState {
             pending_tab: None,
             popup: None,
             menu: None,
+            paste_values: false,
             app_mode: false,
             tab_run: None,
             reveal: false,

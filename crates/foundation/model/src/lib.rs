@@ -28,5 +28,5 @@ pub use rows::RowSet;
 pub use sheet::{DEFAULT_COL_WIDTH, Sheet};
 pub use sort::sort_order;
 pub use table::{ColumnFilter, FilterRule, SheetMeta, Table, header_names, table_name_problem};
-pub use value::{CellError, CellValue, format_number};
+pub use value::{CellError, CellValue, format_number, format_number_grouped};
 pub use workbook::Workbook;

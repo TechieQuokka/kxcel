@@ -103,9 +103,47 @@ pub fn format_number(n: f64) -> String {
     format!("{rounded}")
 }
 
+/// A number as [`format_number`] writes it, with commas between groups of
+/// three digits in its whole part: `1234567.5` shows as `1,234,567.5`. Numbers
+/// in exponent form stay as they are.
+pub fn format_number_grouped(n: f64) -> String {
+    let text = format_number(n);
+    if text.contains('E') {
+        return text;
+    }
+    let (sign, rest) = text.strip_prefix('-').map_or(("", text.as_str()), |rest| ("-", rest));
+    let (whole, fraction) = rest.split_once('.').map_or((rest, None), |(w, f)| (w, Some(f)));
+    let mut grouped = String::with_capacity(whole.len() + whole.len() / 3);
+    for (i, digit) in whole.chars().enumerate() {
+        if i > 0 && (whole.len() - i) % 3 == 0 {
+            grouped.push(',');
+        }
+        grouped.push(digit);
+    }
+    match fraction {
+        Some(fraction) => format!("{sign}{grouped}.{fraction}"),
+        None => format!("{sign}{grouped}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn groups_whole_digits_by_three() {
+        for (n, text) in [
+            (0.0, "0"),
+            (999.0, "999"),
+            (1234.0, "1,234"),
+            (-1234567.5, "-1,234,567.5"),
+            (100000.0, "100,000"),
+            (0.25, "0.25"),
+            (1e15, "1E+15"),
+        ] {
+            assert_eq!(format_number_grouped(n), text);
+        }
+    }
 
     #[test]
     fn formats_numbers_like_general_format() {

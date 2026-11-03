@@ -1,4 +1,7 @@
-//! Command that sets a cell, so the CLI can enter data without a window.
+//! Commands that set a cell, so the CLI can enter data without a window, and
+//! choose how numbers show.
+
+mod format;
 
 use excel_command::{Command, CommandError, CommandRegistry, Context};
 use excel_edit::{CellChange, Edit};
@@ -7,6 +10,7 @@ use excel_model::{Cell, CellAddr};
 
 pub fn register(registry: &mut CommandRegistry) {
     registry.register(Set);
+    registry.register(format::Format);
 }
 
 struct Set;

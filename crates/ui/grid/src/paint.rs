@@ -41,7 +41,7 @@ pub(crate) fn cells(ui: &Ui, state: &GridState, sheet: &Sheet, layout: &Layout) 
                 painter.rect_filled(rect, 0.0, visuals.selection.bg_fill.gamma_multiply(0.45));
             }
             if let Some(cell) = sheet.get(addr) {
-                paint_cell_text(ui, cell, rect, &font, header);
+                paint_cell_text(ui, cell, sheet.shown(addr), rect, &font, header);
             }
             if let Some(table) = table.filter(|_| !state.app_mode) {
                 let filtered = table.filters.iter().any(|filter| filter.column == addr.col);
@@ -65,12 +65,6 @@ pub(crate) fn cells(ui: &Ui, state: &GridState, sheet: &Sheet, layout: &Layout) 
 
     for table in sheet.tables() {
         table_outline(ui, layout, table.range, palette.table_line);
-        if !state.app_mode
-            && let Some(rect) = table_mark_rect(layout, table.range)
-        {
-            let points = vec![rect.right_top(), rect.right_bottom(), rect.left_top()];
-            painter.add(egui::Shape::convex_polygon(points, palette.table_line, Stroke::NONE));
-        }
     }
 
     match state.drag {
@@ -124,8 +118,7 @@ fn sort_mark(painter: &egui::Painter, rect: Rect, descending: bool, color: Color
 
 /// Draws a cell's text. `bold` draws it twice, a hair apart, since the cell
 /// font has no bold face.
-fn paint_cell_text(ui: &Ui, cell: &Cell, rect: Rect, font: &FontId, bold: bool) {
-    let mut text = cell.display();
+fn paint_cell_text(ui: &Ui, cell: &Cell, mut text: String, rect: Rect, font: &FontId, bold: bool) {
     if text.is_empty() {
         if !cell.uncalculated {
             return;
@@ -223,18 +216,6 @@ fn visible_corner(layout: &Layout, range: CellRange, top_left: bool) -> Option<R
     };
     layout.cell_rect(excel_model::CellAddr::new(span.row, col))
 }
-
-/// Where a table's corner mark is: a small triangle just below the table's
-/// bottom right corner, clear of the fill handle, if the corner is in view.
-pub(crate) fn table_mark_rect(layout: &Layout, range: CellRange) -> Option<Rect> {
-    let corner = layout.cell_rect(range.end)?;
-    Some(Rect::from_min_max(
-        corner.right_bottom() + vec2(-TABLE_MARK_SIZE, 3.0),
-        corner.right_bottom() + vec2(0.0, 3.0 + TABLE_MARK_SIZE),
-    ))
-}
-
-const TABLE_MARK_SIZE: f32 = 8.0;
 
 /// Where the fill handle is, if the selection's corner is in view.
 pub(crate) fn fill_handle_rect(layout: &Layout, selection: CellRange) -> Option<Rect> {

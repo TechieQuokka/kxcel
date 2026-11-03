@@ -7,5 +7,5 @@ mod history;
 
 pub use document::Document;
 pub use edit::{CellChange, Edit};
-pub use growth::with_table_growth;
+pub use growth::{add_table_row, with_table_growth};
 pub use history::History;

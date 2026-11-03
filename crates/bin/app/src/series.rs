@@ -9,8 +9,29 @@ pub enum Series {
     Arithmetic { first: f64, step: f64 },
     /// Numbers with a constant ratio: 1, 2, 4.
     Geometric { first: f64, ratio: f64 },
-    /// Text ending in a number, which counts: Item1, Item2.
-    Numbered { prefix: String, first: i64, step: i64, digits: usize },
+    /// Text with numbers in it, such as `사1과10`. Every cell has the same
+    /// text around the numbers, `parts`, one more than there are numbers, and
+    /// each number has its own way of going on.
+    Numbered { parts: Vec<String>, numbers: Vec<Slot> },
+}
+
+/// How one number inside a text goes on.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Slot {
+    /// A constant difference: 1, 2, 3. `digits` keeps zero padding, as in `07`.
+    Counting { first: i64, step: i64, digits: usize },
+    /// No pattern, so the source numbers repeat in order.
+    Repeating(Vec<(i64, usize)>),
+}
+
+impl Slot {
+    fn at(&self, n: i64) -> Option<String> {
+        let (value, digits) = match self {
+            Self::Counting { first, step, digits } => (first.checked_add(step.checked_mul(n)?)?, *digits),
+            Self::Repeating(values) => values[n.rem_euclid(values.len() as i64) as usize],
+        };
+        (value >= 0).then(|| format!("{value:0digits$}"))
+    }
 }
 
 /// Finds the series in a line of cells, in order. `None` means the cells are
@@ -31,9 +52,13 @@ impl Series {
         match self {
             Self::Arithmetic { first, step } => number(first + step * n as f64),
             Self::Geometric { first, ratio } => number(first * ratio.powf(n as f64)),
-            Self::Numbered { prefix, first, step, digits } => {
-                let value = first.checked_add(step.checked_mul(n)?)?;
-                (value >= 0).then(|| Cell::literal(CellValue::Text(format!("{prefix}{value:0digits$}"))))
+            Self::Numbered { parts, numbers } => {
+                let mut text = parts[0].clone();
+                for (slot, after) in numbers.iter().zip(&parts[1..]) {
+                    text.push_str(&slot.at(n)?);
+                    text.push_str(after);
+                }
+                Some(Cell::literal(CellValue::Text(text)))
             }
         }
     }
@@ -76,35 +101,78 @@ fn detect_numbers(cells: &[Option<&Cell>], alternate: bool) -> Option<Series> {
     None
 }
 
-/// Splits text such as `Item07` into `Item`, 7, and 2 digits.
-fn split_number(text: &str) -> Option<(&str, i64, usize)> {
-    let digits_start = text.trim_end_matches(|c: char| c.is_ascii_digit()).len();
-    let (prefix, digits) = text.split_at(digits_start);
-    if prefix.is_empty() || digits.is_empty() {
-        return None;
+/// Text cut around its numbers: the text between them, and each number with
+/// its digit count.
+type Split<'a> = (Vec<&'a str>, Vec<(i64, usize)>);
+
+/// Splits text such as `사1과07` into the text around its numbers, `사`, `과`,
+/// and an empty end, and the numbers with their digit counts, 1 and 7 with 2.
+/// `None` for text without numbers or without anything else.
+fn split_numbers(text: &str) -> Option<Split<'_>> {
+    let mut parts = Vec::new();
+    let mut numbers = Vec::new();
+    let mut rest = text;
+    while let Some(start) = rest.find(|c: char| c.is_ascii_digit()) {
+        let digits = rest[start..].find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len() - start);
+        parts.push(&rest[..start]);
+        let number = &rest[start..start + digits];
+        numbers.push((number.parse().ok()?, number.len()));
+        rest = &rest[start + digits..];
     }
-    Some((prefix, digits.parse().ok()?, digits.len()))
+    parts.push(rest);
+    let has_text = parts.iter().any(|part| !part.is_empty());
+    (has_text && !numbers.is_empty()).then_some((parts, numbers))
 }
 
+/// Text cells with the same text around their numbers. With several cells,
+/// each number counts on if it changes by a constant step, and repeats its
+/// values if not. A single cell counts up its last number, as in Excel.
 fn detect_numbered_text(cells: &[Option<&Cell>], alternate: bool) -> Option<Series> {
-    let parts: Vec<(&str, i64, usize)> = cells
+    let split: Vec<Split<'_>> = cells
         .iter()
         .map(|cell| match &(*cell)?.input {
-            CellInput::Literal(CellValue::Text(text)) => split_number(text),
+            CellInput::Literal(CellValue::Text(text)) => split_numbers(text),
             _ => None,
         })
         .collect::<Option<_>>()?;
-    let (prefix, first, digits) = parts[0];
-    if parts.iter().any(|(other, _, _)| *other != prefix) {
+    let parts = &split[0].0;
+    if split.iter().any(|(other, _)| other != parts) {
         return None;
     }
-    let step = match parts.get(1) {
-        Some((_, second, _)) => second - first,
-        None if alternate => return None,
-        None => 1,
+    let count = split[0].1.len();
+    let numbers: Vec<Slot> = if split.len() == 1 {
+        if alternate {
+            return None;
+        }
+        let values = &split[0].1;
+        (0..count)
+            .map(|i| {
+                let (first, digits) = values[i];
+                if i + 1 == count {
+                    Slot::Counting { first, step: 1, digits }
+                } else {
+                    Slot::Repeating(vec![values[i]])
+                }
+            })
+            .collect()
+    } else {
+        (0..count)
+            .map(|i| {
+                let column: Vec<(i64, usize)> = split.iter().map(|(_, numbers)| numbers[i]).collect();
+                let step = column[1].0 - column[0].0;
+                if column.windows(2).all(|pair| pair[1].0 - pair[0].0 == step) {
+                    Slot::Counting { first: column[0].0, step, digits: column[0].1 }
+                } else {
+                    Slot::Repeating(column)
+                }
+            })
+            .collect()
     };
-    let counts = parts.windows(2).all(|pair| pair[1].1 - pair[0].1 == step);
-    counts.then(|| Series::Numbered { prefix: prefix.to_owned(), first, step, digits })
+    // With nothing counting, every number repeats, which is a plain copy.
+    numbers
+        .iter()
+        .any(|slot| matches!(slot, Slot::Counting { .. }))
+        .then(|| Series::Numbered { parts: parts.iter().map(|part| (*part).to_owned()).collect(), numbers })
 }
 
 #[cfg(test)]
@@ -165,10 +233,36 @@ mod tests {
     }
 
     #[test]
+    fn numbers_anywhere_in_text_count() {
+        assert_eq!(continued(&["사1과", "사2과"], 2, false).unwrap(), ["사3과", "사4과"]);
+        assert_eq!(continued(&["1사과", "2사과", "3사과"], 1, false).unwrap(), ["4사과"]);
+        assert_eq!(continued(&["100원", "200원"], 2, false).unwrap(), ["300원", "400원"]);
+        assert_eq!(continued(&["1사과"], 2, false).unwrap(), ["2사과", "3사과"]);
+    }
+
+    #[test]
+    fn each_number_in_text_has_its_own_series() {
+        assert_eq!(continued(&["사1과10", "사2과20", "사3과30"], 2, false).unwrap(), ["사4과40", "사5과50"]);
+        assert_eq!(
+            continued(&["사1과10", "사2과7", "사3과42"], 3, false).unwrap(),
+            ["사4과10", "사5과7", "사6과42"],
+            "a number without a pattern repeats while the other counts"
+        );
+        assert_eq!(
+            continued(&["2026년 1월"], 2, false).unwrap(),
+            ["2026년 2월", "2026년 3월"],
+            "one cell counts its last number"
+        );
+        assert_eq!(continued(&["A07-1", "A08-1"], 1, false).unwrap(), ["A09-1"]);
+    }
+
+    #[test]
     fn plain_and_mismatched_text_is_copied() {
         assert_eq!(continued(&["사과"], 1, false), None);
         assert_eq!(continued(&["a1", "b2"], 1, false), None);
         assert_eq!(continued(&["a1", "a2", "a4"], 1, false), None);
+        assert_eq!(continued(&["사1과", "배2과"], 1, false), None, "different text around the numbers");
+        assert_eq!(continued(&["x1y5", "x3y2", "x2y9"], 1, false), None, "nothing counts, so it copies");
     }
 
     #[test]
@@ -182,7 +276,10 @@ mod tests {
         let refs: Vec<Option<&Cell>> = cells.iter().map(Some).collect();
         let series = detect(&refs, false).unwrap();
         assert_eq!(series.cell_at(-1).unwrap().value, CellValue::Number(0.5));
-        let numbered = Series::Numbered { prefix: "x".into(), first: 1, step: 1, digits: 1 };
+        let numbered = Series::Numbered {
+            parts: vec!["x".into(), String::new()],
+            numbers: vec![Slot::Counting { first: 1, step: 1, digits: 1 }],
+        };
         assert_eq!(numbered.cell_at(-1).unwrap().value, CellValue::Text("x0".into()));
         assert_eq!(numbered.cell_at(-2), None, "no negative counts");
     }

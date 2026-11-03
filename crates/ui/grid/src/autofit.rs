@@ -15,7 +15,7 @@ pub(crate) fn fitted_width(ui: &Ui, sheet: &Sheet, col: u32) -> f32 {
     let widest = sheet
         .iter()
         .filter(|(addr, _)| addr.col == col)
-        .map(|(_, cell)| cell.display())
+        .map(|(addr, _)| sheet.shown(addr))
         .filter(|text| !text.is_empty())
         .map(|text| ui.painter().layout_no_wrap(text, font.clone(), Color32::WHITE).size().x)
         .fold(None, |widest: Option<f32>, width| Some(widest.map_or(width, |w| w.max(width))));

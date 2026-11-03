@@ -105,6 +105,7 @@ mod tests {
             "theme",
             "table",
             "app",
+            "format",
         ] {
             assert!(registry.complete(name).iter().any(|c| c.name == name), "{name}");
         }

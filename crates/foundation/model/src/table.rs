@@ -73,6 +73,8 @@ pub struct SheetMeta {
     pub hidden_rows: RowSet,
     /// Cells an app lets its users change, empty ones included.
     pub input_cells: RangeSet,
+    /// Cells whose numbers show without commas, such as a column of years.
+    pub plain_cells: RangeSet,
 }
 
 /// Rows or columns inserted or deleted.
@@ -145,6 +147,7 @@ impl SheetMeta {
             true
         });
         self.input_cells.remap(|range| shift.range(range, false));
+        self.plain_cells.remap(|range| shift.range(range, false));
         match (shift.rows, shift.insert) {
             (true, true) => self.hidden_rows.insert_rows(shift.at, shift.count),
             (true, false) => self.hidden_rows.delete_rows(shift.at, shift.count),

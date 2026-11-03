@@ -32,8 +32,14 @@ pub(crate) fn handle(
             ui.set_cursor_icon(CursorIcon::ResizeHorizontal);
         } else if state.drag.is_none() && hovered_fill_handle(state, layout, pos) {
             ui.set_cursor_icon(CursorIcon::Crosshair);
-        } else if state.drag.is_none() && table_mark_at(state, sheet, layout, pos).is_some() {
-            ui.set_cursor_icon(CursorIcon::ResizeNwSe);
+        } else if state.drag.is_none()
+            && let Some(edge) = table_edge_at(state, sheet, layout, pos)
+        {
+            ui.set_cursor_icon(match (edge.rows, edge.cols) {
+                (true, true) => CursorIcon::ResizeNwSe,
+                (true, false) => CursorIcon::ResizeVertical,
+                _ => CursorIcon::ResizeHorizontal,
+            });
         }
     }
 
@@ -45,13 +51,31 @@ pub(crate) fn handle(
         && response.contains_pointer()
         && !state.is_editing()
         && !state.app_mode
-        && let Some(addr) = layout.cell_at(pos)
     {
-        if !state.selection().contains(addr) {
-            state.cursor = addr;
-            state.anchor = addr;
+        use crate::menu::{ContextMenu, Place, select_header};
+        let place = if let Some(addr) = layout.cell_at(pos) {
+            if !state.selection().contains(addr) {
+                state.cursor = addr;
+                state.anchor = addr;
+            }
+            Some(Place::Cell)
+        } else if let Some(row) = layout.row_header_at(pos) {
+            select_header(state, Place::RowHeader, row);
+            Some(Place::RowHeader)
+        } else if let Some(col) = layout.col_header_at(pos) {
+            select_header(state, Place::ColHeader, col);
+            Some(Place::ColHeader)
+        } else {
+            None
+        };
+        if let Some(place) = place {
+            if !focused {
+                actions.push(GridAction::FocusGrid);
+            }
+            state.menu = Some(ContextMenu { at: pos, place, just_opened: true });
+            // A Paste values whose paste never came is forgotten.
+            state.paste_values = false;
         }
-        state.menu = Some(crate::menu::ContextMenu { at: pos, just_opened: true });
     }
 
     let pressed = ui.input(|i| i.pointer.button_pressed(PointerButton::Primary));
@@ -141,10 +165,13 @@ fn press(
         state.drag = Some(Drag::Resize { col: span.col, start_x: pos.x, start_width: span.width });
         return;
     }
+    // The fill handle comes first where it sits on a table's corner.
     if !state.is_editing()
-        && let Some(range) = table_mark_at(state, sheet, layout, pos)
+        && !hovered_fill_handle(state, layout, pos)
+        && let Some(edge) = table_edge_at(state, sheet, layout, pos)
     {
-        state.drag = Some(Drag::TableResize { start: range.start, end: range.end, was: range.end });
+        let TableEdge { range, rows, cols } = edge;
+        state.drag = Some(Drag::TableResize { start: range.start, end: range.end, was: range.end, rows, cols });
         return;
     }
     if !state.is_editing() && hovered_fill_handle(state, layout, pos) {
@@ -224,13 +251,15 @@ fn continue_drag(
                 state.reference_end = addr;
             }
         }
-        Drag::TableResize { start, was, .. } => {
-            // The mark hangs below the corner, so the corner is up and left of the pointer.
-            if let Some(addr) = drag_cell(state, sheet, layout, pos - egui::vec2(4.0, 10.0)) {
+        Drag::TableResize { start, was, rows, cols, .. } => {
+            // The border sits between cells, so the cell just before the
+            // pointer is the one the border ends after.
+            if let Some(addr) = drag_cell(state, sheet, layout, pos - egui::vec2(EDGE_GRAB + 1.0, EDGE_GRAB + 1.0)) {
                 // The header row and first column stay, so the corner never
-                // passes above or left of them.
-                let end = CellAddr::new(addr.row.max(start.row), addr.col.max(start.col));
-                state.drag = Some(Drag::TableResize { start, end, was });
+                // passes above or left of them. A side border moves one way only.
+                let row = if rows { addr.row.max(start.row) } else { was.row };
+                let col = if cols { addr.col.max(start.col) } else { was.col };
+                state.drag = Some(Drag::TableResize { start, end: CellAddr::new(row, col), was, rows, cols });
             }
         }
         Drag::ScrollVertical => {
@@ -273,7 +302,7 @@ fn drag_cell(state: &mut GridState, sheet: &Sheet, layout: &Layout, pos: Pos2) -
 }
 
 fn finish_drag(ui: &Ui, state: &mut GridState, actions: &mut Vec<GridAction>) {
-    if let Some(Drag::TableResize { start, end, was }) = state.drag {
+    if let Some(Drag::TableResize { start, end, was, .. }) = state.drag {
         // Resizing goes through the table command, which checks overlaps and
         // makes it one undo step. It finds the table by its top-left cell.
         if end != was {
@@ -298,18 +327,45 @@ fn finish_drag(ui: &Ui, state: &mut GridState, actions: &mut Vec<GridAction>) {
     state.drag = None;
 }
 
-/// The range of the table whose corner mark is under `pos`.
-fn table_mark_at(state: &GridState, sheet: &Sheet, layout: &Layout, pos: Pos2) -> Option<CellRange> {
-    if state.app_mode || state.is_editing() {
+/// How close to a table's border the pointer must be to grab it.
+const EDGE_GRAB: f32 = 3.0;
+
+/// A table border under the pointer: the table's range, and whether the
+/// border moves rows, columns, or both at the corner.
+struct TableEdge {
+    range: CellRange,
+    rows: bool,
+    cols: bool,
+}
+
+/// The right or bottom border of a table under `pos`, if one is in view. The
+/// top and left borders hold the header row and first column, so they stay.
+fn table_edge_at(state: &GridState, sheet: &Sheet, layout: &Layout, pos: Pos2) -> Option<TableEdge> {
+    if state.app_mode || state.is_editing() || !layout.body().expand(EDGE_GRAB).contains(pos) {
         return None;
     }
-    sheet
-        .tables()
-        .iter()
-        .find(|table| {
-            crate::paint::table_mark_rect(layout, table.range).is_some_and(|rect| rect.expand(2.0).contains(pos))
-        })
-        .map(|table| table.range)
+    let (first_row, last_row) = (layout.rows.first()?.row, layout.rows.last()?.row);
+    let (first_col, last_col) = (layout.cols.first()?.col, layout.cols.last()?.col);
+    sheet.tables().iter().find_map(|table| {
+        let range = table.range;
+        let in_view = range.end.row >= first_row
+            && range.start.row <= last_row
+            && range.end.col >= first_col
+            && range.start.col <= last_col;
+        if !in_view {
+            return None;
+        }
+        let right = layout.cols.iter().find(|span| span.col == range.end.col).map(|span| span.x + span.width);
+        let bottom = layout.row_span(range.end.row).map(|span| span.y + span.height);
+        let top = layout.row_span_from(range.start.row).map_or(layout.body().top(), |span| span.y);
+        let left =
+            layout.cols.iter().find(|span| span.col >= range.start.col).map_or(layout.body().left(), |span| span.x);
+        let within_rows = pos.y >= top - EDGE_GRAB && bottom.is_none_or(|bottom| pos.y <= bottom + EDGE_GRAB);
+        let within_cols = pos.x >= left - EDGE_GRAB && right.is_none_or(|right| pos.x <= right + EDGE_GRAB);
+        let cols = within_rows && right.is_some_and(|right| (pos.x - right).abs() <= EDGE_GRAB);
+        let rows = within_cols && bottom.is_some_and(|bottom| (pos.y - bottom).abs() <= EDGE_GRAB);
+        (rows || cols).then_some(TableEdge { range, rows, cols })
+    })
 }
 
 /// Whether `pos` is on the `▼` at the right of a table header cell.

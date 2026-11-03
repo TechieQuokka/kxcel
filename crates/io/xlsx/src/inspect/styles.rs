@@ -35,13 +35,23 @@ fn has_styled_cell(sheet: &str, kept: &HashSet<String>) -> bool {
     })
 }
 
-/// The cell styles, by index, that only show a date, unlock their cells, or
-/// both: a date or default number format, the default font, fill, and border,
+/// The cell styles, by index, that only show a date, a comma or plain number
+/// format, unlock their cells, or both: such a format or the default one, the default font, fill, and border,
 /// no alignment, and nothing but unlocking for protection. The application
 /// keeps dates and input cells, so saving loses nothing from these.
 pub(super) fn kept_styles(styles: &str) -> HashSet<String> {
     let custom_dates: HashSet<&str> = elements(styles, "numFmt")
         .filter(|element| attribute(element, "formatCode").is_some_and(is_date_code))
+        .filter_map(|element| attribute(element, "numFmtId"))
+        .collect();
+    // Comma and plain number formats are kept too: this application shows
+    // numbers with commas, and plain cells without.
+    let custom_numbers: HashSet<&str> = elements(styles, "numFmt")
+        .filter(|element| {
+            attribute(element, "formatCode")
+                .map(|code| code.replace("&quot;", "\""))
+                .is_some_and(|code| crate::tables::is_plain_code(&code) || crate::tables::is_comma_code(&code))
+        })
         .filter_map(|element| attribute(element, "numFmtId"))
         .collect();
     let Some(cell_xfs) = section(styles, "cellXfs") else {
@@ -55,11 +65,12 @@ pub(super) fn kept_styles(styles: &str) -> HashSet<String> {
             let plain = |name| attribute(head, name).is_none_or(|id| id == "0");
             let format = attribute(head, "numFmtId").unwrap_or("0");
             let date = matches!(format, "14" | "15" | "16" | "17") || custom_dates.contains(format);
+            let number = matches!(format, "1" | "2" | "3" | "4") || custom_numbers.contains(format);
             let unlocked = crate::tables::is_unlocked(xf);
             let children = if head.ends_with('/') { "" } else { &xf[head.len() + 1..] };
             let only_unlocking = children.replace("</xf>", "").trim().is_empty()
                 || (unlocked && children.matches('<').count() <= 2 && !children.contains("<alignment"));
-            (date || (unlocked && format == "0"))
+            (date || number || (unlocked && format == "0"))
                 && plain("fontId")
                 && plain("fillId")
                 && plain("borderId")

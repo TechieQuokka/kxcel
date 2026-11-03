@@ -9,9 +9,10 @@ use excel_ui_grid::{parse_tsv, to_tsv};
 
 use crate::series;
 
-/// Finishes editing a cell. Blank text clears it.
-pub fn commit(doc: &mut Document, calculator: &dyn Calculator, addr: CellAddr, text: &str) {
-    apply(doc, calculator, BTreeMap::from([(addr, Cell::parse_input(text))]));
+/// Finishes editing a cell. Blank text clears it. Returns whether the cell
+/// changed.
+pub fn commit(doc: &mut Document, calculator: &dyn Calculator, addr: CellAddr, text: &str) -> bool {
+    apply(doc, calculator, BTreeMap::from([(addr, Cell::parse_input(text))]))
 }
 
 /// Clears every stored cell in a range.
@@ -174,7 +175,7 @@ fn moved(cell: &Cell, calculator: &dyn Calculator, rows: i64, cols: i64) -> Cell
     cell
 }
 
-fn apply(doc: &mut Document, calculator: &dyn Calculator, changes: BTreeMap<CellAddr, Option<Cell>>) {
+fn apply(doc: &mut Document, calculator: &dyn Calculator, changes: BTreeMap<CellAddr, Option<Cell>>) -> bool {
     let index = doc.workbook.active_index();
     let sheet = doc.workbook.active();
     let changes: Vec<CellChange> = changes
@@ -183,12 +184,13 @@ fn apply(doc: &mut Document, calculator: &dyn Calculator, changes: BTreeMap<Cell
         .filter(|change| change.before != change.after)
         .collect();
     if changes.is_empty() {
-        return;
+        return false;
     }
     doc.apply(Edit::SetCells(changes));
     if let Some(edit) = doc.history.last_undo() {
         calculator.update(&mut doc.workbook, edit);
     }
+    true
 }
 
 #[cfg(test)]

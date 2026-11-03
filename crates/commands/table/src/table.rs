@@ -26,7 +26,7 @@ impl Command for TableCommand {
                           cursor; remove leaves its cells as they are. sort orders the rows below the \
                           header by the column with that header, once: the table does not stay sorted. With nothing after it, lists the tables on \
                           the sheet. Ctrl+T, or Create table on the right-click menu, also creates a table, \
-                          and dragging the mark at a table's bottom right corner resizes it.",
+                          and dragging a table's right or bottom border resizes it.",
             args: &[
                 ("create [name]", "Optional. Makes a table, named as given or TableN"),
                 ("remove", "Optional. The table at the cursor stops being a table"),

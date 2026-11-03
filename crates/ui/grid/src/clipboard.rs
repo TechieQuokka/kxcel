@@ -1,6 +1,7 @@
 use excel_model::{CellAddr, CellRange, Sheet};
 
-/// Renders a range as tab-separated displayed values, the format other
+/// Renders a range as tab-separated values as the grid shows them, commas
+/// included, the format other
 /// spreadsheets exchange through the clipboard. A value holding a tab, a line
 /// break, or a quote is quoted, as Excel does. Hidden rows are left out.
 pub fn to_tsv(sheet: &Sheet, range: CellRange) -> String {
@@ -15,7 +16,7 @@ pub fn to_tsv(sheet: &Sheet, range: CellRange) -> String {
             if col > range.start.col {
                 text.push('\t');
             }
-            text.push_str(&quote_field(&sheet.display(CellAddr::new(row, col))));
+            text.push_str(&quote_field(&sheet.shown(CellAddr::new(row, col))));
         }
     }
     text

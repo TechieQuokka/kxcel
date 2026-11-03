@@ -32,6 +32,23 @@ impl Document {
         self.dirty = true;
     }
 
+    /// Applies an edit as part of the latest one, so a single undo takes back
+    /// both, as when `Enter` adds a table row after an edit. With nothing to
+    /// join, it is recorded on its own.
+    pub fn apply_joined(&mut self, edit: Edit) {
+        edit.apply(&mut self.workbook);
+        let joined = match self.history.pop_undo() {
+            Some(Edit::Batch(mut edits)) => {
+                edits.push(edit);
+                Edit::Batch(edits)
+            }
+            Some(last) => Edit::Batch(vec![last, edit]),
+            None => edit,
+        };
+        self.history.push_undo(joined);
+        self.dirty = true;
+    }
+
     /// Reverts the latest edit. Returns false if there was nothing to undo.
     pub fn undo(&mut self) -> bool {
         let Some(edit) = self.history.pop_undo() else {

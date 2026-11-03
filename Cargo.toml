@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*/*"]
 
 [workspace.package]
-version = "1.32.0"
+version = "1.37.0"
 edition = "2024"
 license = "PolyForm-Noncommercial-1.0.0"
 
@@ -43,6 +43,11 @@ egui = "0.37.0"
 rust_xlsxwriter = "0.102.0"
 tempfile = "3.27.0"
 zip = "9.2.2"
+
+# Line tables keep file and line numbers in panics and backtraces, while
+# leaving out the rest of the debug info, which made target/ grow past 100 GB.
+[profile.dev]
+debug = "line-tables-only"
 
 [profile.release]
 strip = true

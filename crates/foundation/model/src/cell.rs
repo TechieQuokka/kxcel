@@ -101,8 +101,17 @@ impl Cell {
     }
 }
 
-/// Parses a finite decimal number. Rust's `inf` and `nan` spellings are rejected.
+/// Parses a finite decimal number. Rust's `inf` and `nan` spellings are
+/// rejected. Commas are allowed only between groups of three digits in the
+/// whole part, as in `1,234,567.5`, so `1,2` stays text.
 fn parse_number(text: &str) -> Option<f64> {
+    let ungrouped;
+    let text = if text.contains(',') {
+        ungrouped = ungroup(text)?;
+        ungrouped.as_str()
+    } else {
+        text
+    };
     let looks_numeric = text.bytes().all(|b| b.is_ascii_digit() || matches!(b, b'.' | b'-' | b'+' | b'e' | b'E'));
     if !looks_numeric {
         return None;
@@ -110,9 +119,31 @@ fn parse_number(text: &str) -> Option<f64> {
     text.parse::<f64>().ok().filter(|n| n.is_finite())
 }
 
+/// `1,234,567.5` without its commas, or `None` when the commas are not
+/// between groups of three digits.
+fn ungroup(text: &str) -> Option<String> {
+    let body = text.strip_prefix(['-', '+']).unwrap_or(text);
+    let whole = body.split('.').next().unwrap_or(body);
+    let mut groups = whole.split(',');
+    let first = groups.next()?;
+    let first_ok = (1..=3).contains(&first.len()) && first.bytes().all(|b| b.is_ascii_digit());
+    let rest_ok = groups.all(|group| group.len() == 3 && group.bytes().all(|b| b.is_ascii_digit()));
+    let fraction_ok = !body[whole.len()..].contains(',');
+    (first_ok && rest_ok && fraction_ok).then(|| text.replace(',', ""))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn grouped_numbers_are_numbers() {
+        assert_eq!(value_of("1,000"), CellValue::Number(1000.0));
+        assert_eq!(value_of("-1,234,567.5"), CellValue::Number(-1234567.5));
+        for text in ["1,2", "1,2345", ",123", "1234,567", "1.5,000", "12,34"] {
+            assert_eq!(value_of(text), CellValue::Text(text.into()), "{text}");
+        }
+    }
 
     fn value_of(text: &str) -> CellValue {
         Cell::parse_input(text).unwrap().value

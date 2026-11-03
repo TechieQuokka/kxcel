@@ -1,7 +1,7 @@
 # kxcel: Design Document
 
-Status: implemented through 1.32.0. Hand checks for 1.6.0 onward are listed in section 8.
-Version: 1.32.0. All crates share the workspace version. A new feature raises the
+Status: implemented through 1.37.0. Hand checks for 1.6.0 onward are listed in section 8.
+Version: 1.37.0. All crates share the workspace version. A new feature raises the
 minor version, such as 1.0.0 to 1.1.0, and a bug fix raises the patch version,
 such as 1.1.0 to 1.1.1.
 Last updated: 2026-11-02
@@ -81,7 +81,13 @@ Features outside this first version are added when real use calls for them.
   - Numbers with a constant difference continue it: 1, 2, 3 gives 4, 5, 6
   - Otherwise, three or more nonzero numbers with a constant ratio continue
     it: 1, 2, 4 gives 8, 16
-  - Text ending in a number counts: Item1 gives Item2, keeping zero padding
+  - Text with numbers anywhere in it counts, keeping zero padding: Item1
+    gives Item2, 사1과 gives 사2과, 1사과 gives 2사과 (1.36.0). The text
+    around the numbers must be the same in every cell. Each number has its
+    own series: 사1과10, 사2과20 give 사3과30, and a number without a constant
+    step repeats its values while the others count, so 사1과10, 사2과7 give
+    사3과10, 사4과7. With nothing counting, the cells copy. A single cell
+    counts up its last number, as in Excel: 2026년 1월 gives 2026년 2월
   - A single number copies, and Ctrl on release counts it up instead. Ctrl
     also copies a series instead of continuing it
   - Anything else repeats, with formula references adjusted. A value too
@@ -95,6 +101,31 @@ Features outside this first version are added when real use calls for them.
   lines among its cells, and shrinks back when they are gone (1.4.0)
 - Double-clicking a column edge in the header fits the column to its widest
   value, or restores the default width for an empty column (1.1.0)
+
+### Numbers with commas (1.33.0)
+
+- Numbers show with commas between groups of three digits in their whole
+  part: `1234567.5` shows as `1,234,567.5`. Editing, and the status bar's view
+  of a cell's content, show them without, so they are easy to change. Dates
+  are never affected.
+- `format <columns or range> plain` shows numbers without commas, for years
+  or codes, and `format ... comma` goes back. `A` or `A:C` cover whole
+  columns, empty cells too, so numbers typed there later follow it. The
+  ranges live in `SheetMeta` as a `RangeSet`, like input cells, move with
+  inserted and deleted rows and columns, and undo through `Edit::SetMeta`.
+- Typing or pasting `1,000` or `-1,234,567.5` gives a number. Commas must sit
+  between groups of three digits, so `1,2` stays text.
+- The commas are only how the grid shows numbers: `Sheet::shown` adds them,
+  while `Sheet::display` stays without, so find, filters, header names, and
+  `.csv` files see plain numbers. The grid, column fitting, the status bar's
+  sum and average, app mode's status bar, and `Ctrl+C` use the shown text.
+- Files: numbers of four digits or more are saved with Excel's comma format,
+  with as many decimals as they show, so Excel shows them the same way. Plain
+  cells are saved with Excel's `0` format, or `0.00` and so on for decimals,
+  and empty plain cells and whole plain columns get it too, so opening the
+  file gives the same plain ranges. Cells with `0` formats in files from
+  Excel open as plain. Comma and plain formats do not count as formatting
+  saving would lose. Numbers in Excel's General format show with commas here.
 
 ### Dates (1.11.0)
 
@@ -205,6 +236,7 @@ line put back, so it can be fixed and run again (1.6.0).
 | `theme` | Colors: `theme dark`, `theme light`, or just `theme` to switch. Remembered for the next start (1.19.0) |
 | `table` | Tables: `table create [name]`, `table remove`, `table resize <range>`, `table sort <column> [desc]` (1.23.0), `table filter <column> <values or condition>` (1.24.0), or just `table` to list them (1.22.0) |
 | `app` | App mode: `app input <range>` marks input cells, `app input clear [<range>]` unmarks them, and `app input` lists them (1.27.0). `app install <name> [nosave] [icon=<text>]`, `app uninstall <name>`, and `app list` register workbooks as apps (1.29.0) |
+| `format` | Numbers with or without commas: `format A plain`, `format B2:D9 comma` (1.33.0) |
 | `set` | Set a cell, so `kxcel-cli` can enter data. It takes the rest of its line as typed, so quotes in formulas stay (1.15.1) |
 | `help` | Show commands, functions, and keys, optionally filtered: `help sort` (1.3.0) |
 
@@ -266,18 +298,37 @@ Picking a folder lists its contents next. A path with spaces is quoted, and
   are left out. With one cell selected, or nothing filled in the range, no
   table is made and a message says why. Until 1.32.0 a single cell grew into
   the block of data around it, which guessed too much.
-- The right-click menu (1.32.0) opens where the pointer is. A right click
-  inside the selection keeps it, and one outside selects that cell first.
-  Create table is greyed out with a note until a range is selected. `Esc` or
-  a click elsewhere closes it, and while it is open, typing does not reach
-  cells. App mode has no menu.
-- Resizing by mouse (1.32.0): a small triangle just below a table's bottom
-  right corner, clear of the fill handle, drags the corner. The header row and
-  first column stay, an outline shows the new range while dragging, and
-  releasing runs `table resize <range>`, which checks overlaps and makes it
-  one undo step. `table resize` finds the table at the cursor, or else the one
-  starting where the range starts, so the drag needs no cursor move. A click
-  without a drag changes nothing.
+- The right-click menu (1.32.0, reworked in 1.37.0) offers what fits where
+  it opened, in sections with small titles, shortcuts on the right, and
+  nothing greyed out, so it stays short:
+  - Always: Cut, Copy, Paste, Paste values, and Clear contents.
+  - On a cell: insert or delete as many rows or columns as are selected, sort
+    by the cursor's column, Create table when a range is selected, and show
+    the selection's numbers with or without commas.
+  - In a table: sort by the column, Filter... (the header popup), Filter by
+    the cell's value, Clear filter on the column when it has one, and Remove
+    table, keep cells, under a title naming the table.
+  - On a row number or column letter: it selects the whole row or column,
+    unless it is inside a selection of whole rows or columns, and offers
+    inserting and deleting them, and for a column, fitting its width.
+  - Paste asks the system for the clipboard (`ViewportCommand::RequestPaste`),
+    which answers with the same paste event `Ctrl+V` gives. Paste values marks
+    that answer, so it is read as typed values and formulas stay behind.
+  - Every other item is a command line or the action its shortcut gives, so
+    it behaves and undoes the same. A right click inside the selection keeps
+    it, one outside selects that cell. The menu stays inside the window, `Esc`
+    or a click elsewhere closes it, and app mode has none.
+- Resizing by mouse (1.34.0): dragging a table's right border changes its
+  columns, its bottom border its rows, and the corner where they meet both.
+  The pointer turns into a resize arrow within 3 pixels of a border, so a
+  click further inside still selects a cell, and the fill handle comes first
+  where it sits on the corner. The header row and first column stay, so the
+  top and left borders do not move. An outline shows the new range while
+  dragging, and releasing runs `table resize <range>`, which checks overlaps
+  and makes it one undo step. `table resize` finds the table at the cursor,
+  or else the one starting where the range starts, so the drag needs no
+  cursor move. A click without a drag changes nothing. Until 1.34.0 a small
+  triangle below the corner did this, which was hard to find.
 - Empty or repeated headers are written as names such as `Column3`, as Excel
   does. Names default to `Table1`, `Table2`, and so on, are unique in the
   workbook ignoring case, and follow Excel's rules: a letter or underscore
@@ -292,6 +343,13 @@ Picking a folder lists its contents next. A path with spaces is quoted, and
   grows a table, and a table never grows into another. The rule lives in
   `Document::apply`, so typing, paste, fill, `set`, and `kxcel-cli` all follow
   it, and one undo takes back the value and the growth together.
+- `Enter` after an edit in a table's last row adds an empty row to the table
+  and goes to it (1.35.0), in the column a run of `Tab` moves started in. Only
+  `Enter` after a change does this: moving with `Enter`, `Shift+Enter`, or
+  `Tab` adds nothing, and nor does a row that would meet another table.
+  Columns are never added this way, since each needs a header name. The grid
+  reports `GridAction::AddTableRow` after the `Commit`, and the app joins the
+  row to the edit's undo step with `Document::apply_joined`.
 - Inserting and deleting rows and columns moves and resizes tables. Deleting a
   table's header row, or all its columns, removes the table.
 - Look: the header row has its own background and bold text, drawn twice a
@@ -615,7 +673,7 @@ excel/
     │       └── tests/ roundtrip, inspect
     │
     ├── commands/                    # each: src/lib + command files with their tests
-    │   ├── cell/                    # excel-cmd-cell: set
+    │   ├── cell/                    # excel-cmd-cell: set, format
     │   ├── help/                    # excel-cmd-help: help
     │   ├── file/                    # excel-cmd-file: save, exit, open
     │   ├── sort/                    # excel-cmd-sort: sort
@@ -833,7 +891,11 @@ built. The hand checks from stage 2 are listed in section 8.
 | Functions (1.12.0 to 1.15.0) | Covered by automated tests, including every help example with a result | Compare a few results with Excel |
 | Completion limits, Tab closing parentheses, help tabs (1.15.2 to 1.17.0) | Covered by automated tests | Check by hand while typing formulas |
 | Full screen and themes (1.18.0, 1.19.0) | Covered by automated tests, which cannot see the real window | Check `F11`, `theme light`, and that the theme returns after a restart |
-| Tables from the selection (1.32.0) | Covered by automated tests | Check by hand: the right-click menu, and dragging a table's corner mark both ways |
+| Right-click menu (1.37.0) | Covered by automated tests, which click a few items | Check by hand: each item in a cell, a table, and on row and column headers, in both themes |
+| Numbers in text fill (1.36.0) | Covered by automated tests | Check by hand with the fill handle |
+| `Enter` adds a table row (1.35.0) | Covered by automated tests | Check by hand while typing rows into a table |
+| Numbers with commas (1.33.0) | Covered by automated tests | Check by hand: commas in the grid, `format A plain`, and a saved file in Excel |
+| Tables from the selection (1.32.0, 1.34.0) | Covered by automated tests | Check by hand: the right-click menu, and dragging a table's right and bottom borders both ways |
 | `Tab` then `Enter` (1.31.0) | Covered by automated tests | Check by hand while filling a table row by row |
 | `Ctrl+Arrow` (1.21.0) | Covered by automated tests | Check by hand: jumps in a real file, and the status bar after `Ctrl+Shift+Arrow` |
 | Tables (1.22.0, 1.23.0) | Covered by automated tests, which cannot see the drawing | Check by hand: `Ctrl+T`, the header, outline, and sort arrow in both themes, typing below a table |

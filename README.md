@@ -24,6 +24,8 @@ type `=` to list functions.
   `IFERROR`, `AND`), text (`LEFT`, `TEXT`, `TEXTJOIN`, `SUBSTITUTE`), lookup
   (`VLOOKUP`, `XLOOKUP`, `INDEX`, `MATCH`), and dates (`TODAY`, `DATE`, `DATEDIF`)
 - Dates shown as `YYYY-MM-DD`, typed the same way
+- Numbers shown with commas, such as `1,234,567`, except where `format A plain`
+  says otherwise
 - `.csv` reading and writing
 - Commands such as `save`, `open`, `exit`, `sort`, `find`, and `goto`, with
   `Tab` completing command names and file paths
@@ -31,8 +33,10 @@ type `=` to list functions.
 - Full screen (`F11`) and dark or light themes (`theme light`)
 - Fill handle that continues series such as 1, 2, 3 and 1, 2, 4
 - `Ctrl+Arrow` jumps to the edge of the data
+- A right-click menu that fits the spot: copy and paste, paste values, insert
+  and delete rows and columns, sort, and table filters
 - Tables made from the selection (`Ctrl+T`, right-click, `table`), resized by
-  dragging their corner, with sorting and filters from the command line or the
+  dragging their borders, with sorting and filters from the command line or the
   `▼` on each header, saved as Excel tables
 - App mode: mark input cells (`app input B2:B9`), then open the workbook with
   `kxcel --app`, or register it in the app list and dock with its own text

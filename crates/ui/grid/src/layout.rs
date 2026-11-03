@@ -145,6 +145,22 @@ impl Layout {
         self.cell_at(clamped)
     }
 
+    /// The row whose number is under a position in the row header.
+    pub fn row_header_at(&self, pos: Pos2) -> Option<u32> {
+        let inside = (self.rect.left()..self.rect.left() + self.header.x).contains(&pos.x);
+        inside.then(|| {
+            self.rows.iter().find(|span| (span.y..span.y + span.height).contains(&pos.y)).map(|span| span.row)
+        })?
+    }
+
+    /// The column whose letter is under a position in the column header.
+    pub fn col_header_at(&self, pos: Pos2) -> Option<u32> {
+        let inside = (self.rect.top()..self.rect.top() + self.header.y).contains(&pos.y);
+        inside.then(|| {
+            self.cols.iter().find(|span| (span.x..span.x + span.width).contains(&pos.x)).map(|span| span.col)
+        })?
+    }
+
     /// The column whose right edge is under a position in the column header.
     pub fn resize_handle_at(&self, pos: Pos2) -> Option<ColSpan> {
         let header_top = self.rect.top()..=self.rect.top() + self.header.y;
