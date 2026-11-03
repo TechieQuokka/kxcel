@@ -40,10 +40,17 @@ impl FunctionRegistry {
         registry.register(math::sumproduct::SumProduct);
         registry.register(math::multiple::Ceiling);
         registry.register(math::multiple::Floor);
+        registry.register(math::stats::Median);
+        registry.register(math::stats::Large);
+        registry.register(math::stats::Small);
+        registry.register(math::stats::Rank);
+        registry.register(math::stats::StDev);
         registry.register(logic::if_fn::If);
         registry.register(logic::ifs::Ifs);
         registry.register(logic::iferror::IfError);
         registry.register(logic::ifna::IfNa);
+        registry.register(logic::switch::Switch);
+        registry.register(logic::isna::IsNa);
         registry.register(logic::and::And);
         registry.register(logic::or::Or);
         registry.register(logic::not::Not);
@@ -63,12 +70,18 @@ impl FunctionRegistry {
         registry.register(text::find::Find);
         registry.register(text::substitute::Substitute);
         registry.register(text::text_fn::Text);
+        registry.register(text::search::Search);
+        registry.register(text::replace::Replace);
+        registry.register(text::rept::Rept);
+        registry.register(text::text_split::TextBefore);
+        registry.register(text::text_split::TextAfter);
         registry.register(text::value::Value);
         registry.register(lookup::vlookup::VLookup);
         registry.register(lookup::hlookup::HLookup);
         registry.register(lookup::index::Index);
         registry.register(lookup::match_fn::Match);
         registry.register(lookup::xlookup::XLookup);
+        registry.register(lookup::choose::Choose);
         registry.register(date::today::Today);
         registry.register(date::date_fn::Date);
         registry.register(date::year::Year);
@@ -80,6 +93,7 @@ impl FunctionRegistry {
         registry.register(date::weekday_fn::Weekday);
         registry.register(date::networkdays::NetworkDays);
         registry.register(date::workday::Workday);
+        registry.register(date::days::Days);
         registry
     }
 

@@ -87,3 +87,28 @@ fn ifna_replaces_only_not_found() {
     assert_eq!(result("=IFNA(A1, 0)"), number(10.0));
     assert_eq!(result("=IFNA(A1)"), CellValue::Error(CellError::Value));
 }
+
+#[test]
+fn switching_and_choosing() {
+    for (formula, expected) in [
+        ("=SWITCH(\"b\", \"A\", 1, \"B\", 2)", number(2.0)),
+        ("=SWITCH(A1, 5, \"five\", 10, \"ten\", \"other\")", CellValue::Text("ten".into())),
+        ("=SWITCH(7, 5, \"five\", \"other\")", CellValue::Text("other".into())),
+        ("=SWITCH(7, 5, \"five\")", CellValue::Error(CellError::Na)),
+        ("=SWITCH(1, 1, A3, 1/0)", CellValue::Error(CellError::Div0)),
+        ("=SWITCH(2, 1, A3, 2, \"ok\")", CellValue::Text("ok".into())),
+        ("=SWITCH(A3, 1, 2)", CellValue::Error(CellError::Div0)),
+        ("=SWITCH(1, 1)", CellValue::Error(CellError::Value)),
+        ("=CHOOSE(2, \"a\", \"b\", \"c\")", CellValue::Text("b".into())),
+        ("=CHOOSE(3.7, 1, 2, 3)", number(3.0)),
+        ("=CHOOSE(1, A1)", number(10.0)),
+        ("=CHOOSE(2, A3, 7)", number(7.0)),
+        ("=CHOOSE(4, 1, 2, 3)", CellValue::Error(CellError::Value)),
+        ("=CHOOSE(0, 1)", CellValue::Error(CellError::Value)),
+        ("=ISNA(A3)", yes(false)),
+        ("=ISNA(A1)", yes(false)),
+        ("=ISNA(IFS(FALSE, 1))", yes(true)),
+    ] {
+        assert_eq!(result(formula), expected, "{formula}");
+    }
+}

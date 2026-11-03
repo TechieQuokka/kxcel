@@ -19,11 +19,12 @@ type `=` to list functions.
 
 - `.xlsx` reading and writing, with a warning before saving over content the
   app cannot keep
-- Formulas with automatic, incremental recalculation and 67 functions: math
-  and conditional sums (`SUM`, `ROUND`, `CEILING`, `SUMIFS`, `SUMPRODUCT`,
-  `MAXIFS`), logic (`IF`, `IFS`, `IFERROR`, `IFNA`), text (`LEFT`, `TEXT`,
-  `TEXTJOIN`, `SUBSTITUTE`), lookup (`VLOOKUP`, `XLOOKUP`, `INDEX`, `MATCH`), and
-  dates (`TODAY`, `DATE`, `DATEDIF`, `EOMONTH`, `NETWORKDAYS`, `WORKDAY`)
+- Formulas with automatic, incremental recalculation and 81 functions: math
+  and statistics (`SUM`, `ROUND`, `CEILING`, `SUMIFS`, `SUMPRODUCT`, `MEDIAN`,
+  `LARGE`, `RANK`), logic (`IF`, `IFS`, `SWITCH`, `IFERROR`, `IFNA`), text
+  (`LEFT`, `TEXT`, `SEARCH`, `SUBSTITUTE`, `TEXTBEFORE`, `TEXTAFTER`), lookup
+  (`VLOOKUP`, `XLOOKUP`, `INDEX`, `MATCH`, `CHOOSE`), and dates (`TODAY`, `DATE`,
+  `DATEDIF`, `EOMONTH`, `NETWORKDAYS`, `WORKDAY`)
 - Dates shown as `YYYY-MM-DD`, typed the same way
 - Numbers shown with commas, such as `1,234,567`, except where `format A plain`
   says otherwise

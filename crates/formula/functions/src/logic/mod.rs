@@ -5,10 +5,12 @@ pub(crate) mod ifna;
 pub(crate) mod ifs;
 pub(crate) mod isblank;
 pub(crate) mod iserror;
+pub(crate) mod isna;
 pub(crate) mod isnumber;
 pub(crate) mod istext;
 pub(crate) mod not;
 pub(crate) mod or;
+pub(crate) mod switch;
 
 use excel_model::{CellError, CellValue};
 

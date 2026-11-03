@@ -69,3 +69,53 @@ fn formats_and_numbers() {
         assert_eq!(result(formula), expected, "{formula}");
     }
 }
+
+#[test]
+fn searching_replacing_and_repeating() {
+    for (formula, expected) in [
+        ("=SEARCH(\"apple\", \"Big Apple\")", number(5.0)),
+        ("=SEARCH(\"a?c\", \"xxABC\")", number(3.0)),
+        ("=SEARCH(\"b*d\", \"abcde\")", number(2.0)),
+        ("=SEARCH(\"과\", \"사과 사과\", 3)", number(5.0)),
+        ("=SEARCH(\"~?\", \"why?\")", number(4.0)),
+        ("=SEARCH(\"\", \"abc\", 2)", number(2.0)),
+        ("=SEARCH(\"z\", \"abc\")", CellValue::Error(CellError::Value)),
+        ("=SEARCH(\"a\", \"abc\", 9)", CellValue::Error(CellError::Value)),
+        ("=REPLACE(\"010-1234-5678\", 5, 4, \"****\")", text("010-****-5678")),
+        ("=REPLACE(\"가나다\", 2, 0, \"X\")", text("가X나다")),
+        ("=REPLACE(\"가나다\", 9, 1, \"!\")", text("가나다!")),
+        ("=REPLACE(\"가나다\", 2, 99, \"\")", text("가")),
+        ("=REPLACE(\"가\", 0, 1, \"x\")", CellValue::Error(CellError::Value)),
+        ("=REPT(\"★\", 3)", text("★★★")),
+        ("=REPT(\"ab\", 2.9)", text("abab")),
+        ("=REPT(\"a\", 0)", text("")),
+        ("=REPT(\"a\", -1)", CellValue::Error(CellError::Value)),
+        ("=REPT(\"ab\", 20000)", CellValue::Error(CellError::Value)),
+        ("=REPT(B2, 2)", CellValue::Error(CellError::Div0)),
+    ] {
+        assert_eq!(result(formula), expected, "{formula}");
+    }
+}
+
+#[test]
+fn text_around_a_delimiter() {
+    for (formula, expected) in [
+        ("=TEXTBEFORE(\"kim@example.com\", \"@\")", text("kim")),
+        ("=TEXTAFTER(\"kim@example.com\", \"@\")", text("example.com")),
+        ("=TEXTBEFORE(\"서울-강남-역삼\", \"-\", 2)", text("서울-강남")),
+        ("=TEXTAFTER(\"서울-강남-역삼\", \"-\", 2)", text("역삼")),
+        ("=TEXTBEFORE(\"서울-강남-역삼\", \"-\", -1)", text("서울-강남")),
+        ("=TEXTAFTER(\"서울-강남-역삼\", \"-\", -1)", text("역삼")),
+        ("=TEXTAFTER(\"서울-강남-역삼\", \"-\", -2)", text("강남-역삼")),
+        ("=TEXTAFTER(\"a, b, c\", \", \")", text("b, c")),
+        ("=TEXTBEFORE(\"abc\", \"\")", text("")),
+        ("=TEXTAFTER(\"abc\", \"\")", text("abc")),
+        ("=TEXTBEFORE(\"aXb\", \"x\")", CellValue::Error(CellError::Na)),
+        ("=TEXTBEFORE(\"a-b\", \"-\", 2)", CellValue::Error(CellError::Na)),
+        ("=TEXTAFTER(\"a-b\", \"-\", -3)", CellValue::Error(CellError::Na)),
+        ("=TEXTAFTER(\"a-b\", \"-\", 0)", CellValue::Error(CellError::Value)),
+        ("=IFNA(TEXTBEFORE(A1, \"@\"), A1)", text("사과")),
+    ] {
+        assert_eq!(result(formula), expected, "{formula}");
+    }
+}

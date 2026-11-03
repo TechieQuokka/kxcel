@@ -130,3 +130,12 @@ fn working_days() {
     assert_eq!(days("=WORKDAY(DATE(9999, 12, 31), 1)").0, CellValue::Error(CellError::Num));
     assert_eq!(days("=WORKDAY(A1)").0, CellValue::Error(CellError::Value));
 }
+
+#[test]
+fn days_between() {
+    assert_eq!(result("=DAYS(DATE(2026, 12, 25), A1)"), number(53.0));
+    assert_eq!(result("=DAYS(A1, DATE(2026, 12, 25))"), number(-53.0));
+    assert_eq!(result("=DAYS(A1 + 0.9, A1)"), number(0.0));
+    assert_eq!(shown("=DAYS(A1 + 1000, A1)"), "1000", "a count, not a date");
+    assert_eq!(result("=DAYS(\"x\", A1)"), CellValue::Error(CellError::Value));
+}

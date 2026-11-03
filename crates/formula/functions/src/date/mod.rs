@@ -1,6 +1,7 @@
 pub(crate) mod date_fn;
 pub(crate) mod datedif;
 pub(crate) mod day;
+pub(crate) mod days;
 pub(crate) mod edate;
 pub(crate) mod month;
 pub(crate) mod networkdays;

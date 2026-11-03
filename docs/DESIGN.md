@@ -1,7 +1,7 @@
 # kxcel: Design Document
 
-Status: implemented through 1.41.0. Hand checks for 1.6.0 onward are listed in section 8.
-Version: 1.41.0. All crates share the workspace version. A new feature raises the
+Status: implemented through 1.42.0. Hand checks for 1.6.0 onward are listed in section 8.
+Version: 1.42.0. All crates share the workspace version. A new feature raises the
 minor version, such as 1.0.0 to 1.1.0, and a bug fix raises the patch version,
 such as 1.1.0 to 1.1.1.
 Last updated: 2026-11-03
@@ -203,6 +203,22 @@ Features outside this first version are added when real use calls for them.
     last day. `WEEKDAY` numbers days of the week in Excel's types 1, 2, and 3.
     `NETWORKDAYS` counts Monday to Friday between two dates, and `WORKDAY` finds
     the date some working days later; both take optional holidays
+- A second set of functions (1.42.0), bringing the count to 81:
+  - Statistics: `MEDIAN`, `LARGE`, `SMALL`, `RANK`, and `STDEV` (a sample, as
+    Excel's `STDEV` and `STDEV.S`). They collect numbers as `SUM` does. `LARGE`
+    and `SMALL` cut k to a whole number. `RANK` gives equal numbers the same
+    rank and skips the next, as `RANK.EQ` does
+  - `SWITCH` compares one value with each match, text ignoring case, with an
+    optional default and `#N/A` otherwise. `CHOOSE` picks a value by number
+  - `SEARCH` is `FIND` ignoring case, with `*`, `?`, and `~` as in conditions.
+    `REPLACE` replaces by position, and `REPT` repeats text up to Excel's limit
+    of 32,767 characters
+  - `TEXTBEFORE` and `TEXTAFTER` take Excel's first three arguments: text,
+    delimiter, and instance, negative to count from the end. Not found is
+    `#N/A`. Excel's match mode, match end, and not-found arguments are left out
+  - `ISNA` pairs with `IFNA`, and `DAYS(end, start)` counts days between dates
+  - Excel's newer names with a dot, such as `RANK.EQ` and `STDEV.S`, are not
+    added; the older names do the same
 - An empty argument, as in `XLOOKUP(a, b, c, , 2)`, is not supported. Give a
   value instead
 - A test checks that every help example stating a result gives that result
@@ -956,6 +972,7 @@ built. The hand checks from stage 2 are listed in section 8.
 | Completion limits, Tab closing parentheses, help tabs (1.15.2 to 1.17.0) | Covered by automated tests | Check by hand while typing formulas |
 | Full screen and themes (1.18.0, 1.19.0) | Covered by automated tests, which cannot see the real window | Check `F11`, `theme light`, and that the theme returns after a restart |
 | Functions (1.41.0) | Covered by automated tests, including every help example with a result | Compare `CEILING`, `FLOOR`, `NETWORKDAYS`, and `WORKDAY` with Excel on a few dates and negative numbers |
+| Functions (1.42.0) | Covered by automated tests, including every help example with a result | Compare `LARGE` with a fractional k, `RANK` with ties, `SEARCH` wildcards, and `TEXTBEFORE` with a negative instance against Excel |
 | App help and active sheet (1.40.0, 1.40.1) | Covered by automated tests, including a CLI test that installs into a temporary folder | Check by hand: the `app` help page's line breaks in the panel, the right-click input cell items, and an app whose form is on a second sheet |
 | Right-click menu (1.37.0) | Covered by automated tests, which click a few items | Check by hand: each item in a cell, a table, and on row and column headers, in both themes |
 | Numbers in text fill (1.36.0) | Covered by automated tests | Check by hand with the fill handle |

@@ -190,3 +190,44 @@ fn rounding_to_multiples() {
         assert_eq!(value_of(formula), expected, "{formula}");
     }
 }
+
+#[test]
+fn statistics() {
+    let cells = [
+        ("A1", "30"),
+        ("A2", "10"),
+        ("A3", "20"),
+        ("A4", "20"),
+        ("A5", "메모"),
+        ("A6", "100"),
+        ("B1", "=1/0"),
+        ("C1", "5"),
+    ];
+    for (formula, expected) in [
+        ("=MEDIAN(A1:A6)", number(20.0)),
+        ("=MEDIAN(A1:A3)", number(20.0)),
+        ("=MEDIAN(1, 2, 3, 100)", number(2.5)),
+        ("=MEDIAN(A5)", error(CellError::Num)),
+        ("=LARGE(A1:A6, 1)", number(100.0)),
+        ("=LARGE(A1:A6, 2)", number(30.0)),
+        ("=LARGE(A1:A6, 3.9)", number(20.0)),
+        ("=LARGE(A1:A6, 6)", error(CellError::Num)),
+        ("=LARGE(A1:A6, 0)", error(CellError::Num)),
+        ("=SMALL(A1:A6, 1)", number(10.0)),
+        ("=SMALL(A1:A6, 5)", number(100.0)),
+        ("=LARGE(A1:B6, 1)", error(CellError::Div0)),
+        ("=RANK(A6, A1:A6)", number(1.0)),
+        ("=RANK(A3, A1:A6)", number(3.0)),
+        ("=RANK(A4, A1:A6)", number(3.0)),
+        ("=RANK(A2, A1:A6)", number(5.0)),
+        ("=RANK(A2, A1:A6, 1)", number(1.0)),
+        ("=RANK(A1, A1:A6, 1)", number(4.0)),
+        ("=RANK(C1, A1:A6)", error(CellError::Na)),
+        ("=RANK(5, 5)", error(CellError::Value)),
+        ("=STDEV(2, 4, 6)", number(2.0)),
+        ("=STDEV(A1:A4)", number((200.0f64 / 3.0).sqrt())),
+        ("=STDEV(5)", error(CellError::Div0)),
+    ] {
+        assert_eq!(result(&cells, formula), expected, "{formula}");
+    }
+}

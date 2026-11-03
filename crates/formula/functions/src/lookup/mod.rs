@@ -1,3 +1,4 @@
+pub(crate) mod choose;
 pub(crate) mod hlookup;
 pub(crate) mod index;
 pub(crate) mod match_fn;

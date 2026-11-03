@@ -18,6 +18,7 @@ pub(crate) mod round;
 pub(crate) mod rounddown;
 pub(crate) mod roundup;
 pub(crate) mod sqrt;
+pub(crate) mod stats;
 pub(crate) mod sum;
 pub(crate) mod sumif;
 pub(crate) mod sumifs;
