@@ -1,10 +1,10 @@
 # kxcel: Design Document
 
-Status: implemented through 1.39.0. Hand checks for 1.6.0 onward are listed in section 8.
-Version: 1.39.0. All crates share the workspace version. A new feature raises the
+Status: implemented through 1.39.1. Hand checks for 1.6.0 onward are listed in section 8.
+Version: 1.39.1. All crates share the workspace version. A new feature raises the
 minor version, such as 1.0.0 to 1.1.0, and a bug fix raises the patch version,
 such as 1.1.0 to 1.1.1.
-Last updated: 2026-11-02
+Last updated: 2026-11-03
 
 ## 1. Purpose
 
@@ -709,6 +709,9 @@ excel/
         └── app/                     # excel-app, binary: kxcel
             └── src/ main, args, app, keymap, dialogs, actions, series, theme, settings,
                      fonts, icon, help
+                └── app/tests/       # app tests by topic (1.39.1): cells, command_line,
+                                     # files, help, tables, app_mode, performance; mod.rs
+                                     # holds the shared Harness
 ```
 
 ### Dependency rules
@@ -849,6 +852,8 @@ cargo test -p excel-xlsx
 Non-GUI crates do not depend on `egui`, so they can be tested without a window.
 The grid and the app are also tested without a window, by feeding simulated input
 into `egui`. `excel_command::testing` provides fake services for command crates.
+The app's tests live in `crates/bin/app/src/app/tests/`, one file per topic,
+so `app.rs` holds only the app itself (1.39.1).
 
 ## 6. Dependencies
 

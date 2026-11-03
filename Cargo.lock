@@ -1272,7 +1272,7 @@ dependencies = [
 
 [[package]]
 name = "excel-app"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "eframe",
  "egui",
@@ -1290,7 +1290,7 @@ dependencies = [
 
 [[package]]
 name = "excel-cli"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "excel-command",
  "excel-edit",
@@ -1302,7 +1302,7 @@ dependencies = [
 
 [[package]]
 name = "excel-cmd-app"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "excel-command",
  "excel-edit",
@@ -1312,7 +1312,7 @@ dependencies = [
 
 [[package]]
 name = "excel-cmd-cell"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "excel-command",
  "excel-edit",
@@ -1321,7 +1321,7 @@ dependencies = [
 
 [[package]]
 name = "excel-cmd-file"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "excel-command",
  "excel-edit",
@@ -1330,7 +1330,7 @@ dependencies = [
 
 [[package]]
 name = "excel-cmd-find"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "excel-command",
  "excel-edit",
@@ -1339,7 +1339,7 @@ dependencies = [
 
 [[package]]
 name = "excel-cmd-help"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "excel-command",
  "excel-edit",
@@ -1348,7 +1348,7 @@ dependencies = [
 
 [[package]]
 name = "excel-cmd-navigate"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "excel-command",
  "excel-edit",
@@ -1357,7 +1357,7 @@ dependencies = [
 
 [[package]]
 name = "excel-cmd-sheet"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "excel-command",
  "excel-edit",
@@ -1366,7 +1366,7 @@ dependencies = [
 
 [[package]]
 name = "excel-cmd-sort"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "excel-command",
  "excel-edit",
@@ -1375,7 +1375,7 @@ dependencies = [
 
 [[package]]
 name = "excel-cmd-structure"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "excel-command",
  "excel-edit",
@@ -1384,7 +1384,7 @@ dependencies = [
 
 [[package]]
 name = "excel-cmd-table"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "excel-command",
  "excel-edit",
@@ -1393,7 +1393,7 @@ dependencies = [
 
 [[package]]
 name = "excel-cmd-view"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "excel-command",
  "excel-edit",
@@ -1402,7 +1402,7 @@ dependencies = [
 
 [[package]]
 name = "excel-command"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "excel-edit",
  "excel-model",
@@ -1411,7 +1411,7 @@ dependencies = [
 
 [[package]]
 name = "excel-csv"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "csv",
  "excel-command",
@@ -1421,14 +1421,14 @@ dependencies = [
 
 [[package]]
 name = "excel-edit"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "excel-model",
 ]
 
 [[package]]
 name = "excel-features"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "excel-cmd-app",
  "excel-cmd-cell",
@@ -1452,7 +1452,7 @@ dependencies = [
 
 [[package]]
 name = "excel-formula-engine"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "excel-command",
  "excel-edit",
@@ -1463,7 +1463,7 @@ dependencies = [
 
 [[package]]
 name = "excel-formula-functions"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "excel-model",
  "jiff",
@@ -1471,18 +1471,18 @@ dependencies = [
 
 [[package]]
 name = "excel-formula-syntax"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "excel-model",
 ]
 
 [[package]]
 name = "excel-model"
-version = "1.39.0"
+version = "1.39.1"
 
 [[package]]
 name = "excel-ui-command-line"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "egui",
  "excel-command",
@@ -1491,7 +1491,7 @@ dependencies = [
 
 [[package]]
 name = "excel-ui-grid"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "egui",
  "excel-command",
@@ -1500,7 +1500,7 @@ dependencies = [
 
 [[package]]
 name = "excel-ui-help-panel"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "egui",
  "excel-model",
@@ -1508,7 +1508,7 @@ dependencies = [
 
 [[package]]
 name = "excel-ui-status-bar"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "egui",
  "excel-model",
@@ -1516,7 +1516,7 @@ dependencies = [
 
 [[package]]
 name = "excel-xlsx"
-version = "1.39.0"
+version = "1.39.1"
 dependencies = [
  "calamine",
  "excel-command",
