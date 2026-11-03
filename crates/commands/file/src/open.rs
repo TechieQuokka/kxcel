@@ -99,7 +99,8 @@ mod tests {
     #[test]
     fn asks_to_confirm_unsaved_changes_unless_forced() {
         let store = store_with_file();
-        let mut doc = Document { dirty: true, ..Default::default() };
+        let mut doc = Document::default();
+        doc.dirty = true;
         let mut ctx = Context::new(&mut doc, &NoCalculator, &store);
         let error = E.run(&mut ctx, &["my x.xlsx"]).unwrap_err();
         assert_eq!(error.confirmation.as_ref().map(Confirmation::proceed), Some(r#"open! "my x.xlsx""#));

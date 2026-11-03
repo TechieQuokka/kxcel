@@ -62,7 +62,8 @@ mod tests {
 
     #[test]
     fn asks_to_confirm_unsaved_changes_unless_forced() {
-        let mut doc = Document { dirty: true, ..Default::default() };
+        let mut doc = Document::default();
+        doc.dirty = true;
         let mut ctx = Context::new(&mut doc, &NoCalculator, &NoStore);
         let error = Exit { force: false }.run(&mut ctx, &[]).unwrap_err();
         assert!(error.message.contains("exit!"), "{error}");

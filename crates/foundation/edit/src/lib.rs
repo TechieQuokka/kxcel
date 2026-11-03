@@ -6,6 +6,6 @@ mod growth;
 mod history;
 
 pub use document::Document;
-pub use edit::{CellChange, Edit};
+pub use edit::{CellChange, Edit, SheetChange};
 pub use growth::{add_table_row, with_table_growth};
 pub use history::History;

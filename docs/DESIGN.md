@@ -1,7 +1,7 @@
 # kxcel: Design Document
 
-Status: implemented through 1.37.0. Hand checks for 1.6.0 onward are listed in section 8.
-Version: 1.37.0. All crates share the workspace version. A new feature raises the
+Status: implemented through 1.39.0. Hand checks for 1.6.0 onward are listed in section 8.
+Version: 1.39.0. All crates share the workspace version. A new feature raises the
 minor version, such as 1.0.0 to 1.1.0, and a bug fix raises the patch version,
 such as 1.1.0 to 1.1.1.
 Last updated: 2026-11-02
@@ -694,7 +694,7 @@ excel/
     │   ├── command-line/            # excel-ui-command-line
     │   │   └── src/ lib, state, input, completion_popup, message
     │   ├── status-bar/              # excel-ui-status-bar
-    │   │   └── src/ lib, selection_stats
+    │   │   └── src/ lib, selection_stats, summary
     │   └── help-panel/              # excel-ui-help-panel
     │       └── src/ lib, state, entries, panel
     │
@@ -722,6 +722,29 @@ excel/
 | `bin` | `foundation` and `assembly`. Only `app` may also use `ui` |
 
 ### Key mechanisms
+
+**Undo history (1.38.0).** Every change is an `Edit` kept for undo, up to 100
+of them. Changes that rewrite a whole sheet, such as sort, insert, and delete,
+keep the sheet as it was and as it is, but only for the sheets they changed:
+`Edit::replacing_sheets` compares each sheet and keeps `ReplaceSome` with the
+changed ones, and only adding or deleting a sheet keeps the whole list. The
+history also has a budget of five million cells, about 700 MB: past it, the
+oldest edits go, and the latest is always kept. Measured on a sheet of a
+million cells, each row insert used to add 170 MB to the history, and 100 of
+them could reach 17 GB. Now a few such edits can be undone, while small edits
+still go 100 deep.
+
+**Revision and the status bar cache (1.39.0).** `Document::revision` goes up
+with every edit, undo, and redo, and `Document::touch` marks a change made
+directly, such as a column width. With `Workbook::id`, which tells workbooks
+apart, it says whether anything worked out from the document may be out of
+date. The status bar's sum, average, and count, and a filtered table's shown
+rows, are kept in a `SummaryCache` and worked out again only when the
+workbook, revision, sheet, selection, or cursor changed. Before, a whole
+column selected on a sheet of a million cells cost 10 ms in every frame in a
+release build. Row heights and shown text are not cached, since they cost
+under a millisecond a frame, and each cache is one more place a stale value
+could hide; the revision is there if they ever need one.
 
 **Command trait.** Every command implements one contract:
 

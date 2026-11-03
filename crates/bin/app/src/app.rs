@@ -7,6 +7,7 @@ use excel_features::{Services, registry};
 use excel_ui_command_line::{CommandLineAction, CommandLineState};
 use excel_ui_grid::{FunctionInfo, GridAction, GridState};
 use excel_ui_help_panel::{HelpAction, HelpSection, HelpState};
+use excel_ui_status_bar::{SummaryCache, SummaryKey};
 
 use crate::actions::{self, CopiedCells};
 use crate::args::{AppMode, Launch};
@@ -63,6 +64,9 @@ pub struct ExcelApp {
     /// The cell the latest grid action changed by finishing an edit, so a
     /// table row added after it joins its undo step.
     committed: Option<excel_model::CellAddr>,
+    /// The status bar's sum and table rows, worked out again only when the
+    /// document, sheet, selection, or cursor changed.
+    summary: SummaryCache,
 }
 
 impl ExcelApp {
@@ -120,6 +124,7 @@ impl ExcelApp {
             app_mode: None,
             last_cursor: Default::default(),
             committed: None,
+            summary: SummaryCache::default(),
         }
     }
 
@@ -280,6 +285,7 @@ impl ExcelApp {
             GridAction::RequestPaste => ctx.send_viewport_cmd(ViewportCommand::RequestPaste),
             GridAction::ResizeColumn { col, width } => {
                 self.doc.workbook.active_mut().set_col_width(col, width);
+                self.doc.touch();
                 self.doc.dirty = true;
             }
             GridAction::Undo => {
@@ -493,14 +499,15 @@ impl ExcelApp {
             .exact_size(STATUS_BAR_HEIGHT)
             .frame(surface.inner_margin(egui::Margin::symmetric(10, 0)))
             .show(ui, |ui| {
-                excel_ui_status_bar::show(
-                    ui,
-                    self.doc.workbook.active(),
-                    self.grid.cursor,
-                    self.grid.selection(),
-                    &content,
-                    &label,
-                );
+                let key = SummaryKey {
+                    workbook: self.doc.workbook.id(),
+                    revision: self.doc.revision(),
+                    sheet: self.doc.workbook.active_index(),
+                    selection: self.grid.selection(),
+                    cursor: self.grid.cursor,
+                };
+                let summary = self.summary.get(key, self.doc.workbook.active());
+                excel_ui_status_bar::show(ui, summary, self.grid.selection(), &content, &label);
             });
 
         let help_focused = self.focus == Focus::Help && !has_dialog;
@@ -1436,6 +1443,27 @@ mod tests {
         let cell = h.app.doc.workbook.active().get(at).unwrap().clone();
         assert_eq!(cell.input_text(), "2468", "a number, not the formula");
         h.app.apply_grid_action(&ctx, GridAction::RequestPaste);
+    }
+
+    #[test]
+    fn the_status_bar_adds_up_a_selection_once() {
+        let mut h = blank();
+        h.enter_cell("2");
+        h.enter_cell("3");
+        h.drag(cell_center(0, 0), cell_center(4, 0));
+        let before = h.app.summary.computed();
+        for _ in 0..10 {
+            h.frame(Vec::new());
+        }
+        assert_eq!(h.app.summary.computed(), before, "idle frames reuse the sum");
+        h.key(Key::Escape);
+        h.run_line("set A3 5");
+        h.frame(Vec::new());
+        assert!(h.app.summary.computed() > before, "an edit works it out again");
+        h.key_with(Key::Z, Modifiers::COMMAND);
+        let after_undo = h.app.summary.computed();
+        h.frame(Vec::new());
+        assert_eq!(h.app.summary.computed(), after_undo);
     }
 
     #[test]

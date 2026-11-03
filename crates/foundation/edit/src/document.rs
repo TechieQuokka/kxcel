@@ -16,11 +16,27 @@ pub struct Document {
     pub loss_warnings: Vec<String>,
     /// True when there are changes that have not been saved.
     pub dirty: bool,
+    /// Goes up with every change to the workbook through this document, so
+    /// anything worked out from it can tell when to work it out again.
+    revision: u64,
 }
 
 impl Document {
     pub fn new(workbook: Workbook, path: Option<PathBuf>, loss_warnings: Vec<String>) -> Self {
-        Self { workbook, history: History::default(), path, loss_warnings, dirty: false }
+        Self { workbook, history: History::default(), path, loss_warnings, dirty: false, revision: 0 }
+    }
+
+    /// Goes up with every edit, undo, and redo. With [`Workbook::id`], which
+    /// tells workbooks apart, it says whether the contents may have changed.
+    ///
+    /// [`Workbook::id`]: excel_model::Workbook::id
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// Notes a change made to the workbook directly, outside an edit.
+    pub fn touch(&mut self) {
+        self.revision += 1;
     }
 
     /// Applies an edit and records it for undo. Values entered just past a
@@ -30,6 +46,7 @@ impl Document {
         edit.apply(&mut self.workbook);
         self.history.record(edit);
         self.dirty = true;
+        self.revision += 1;
     }
 
     /// Applies an edit as part of the latest one, so a single undo takes back
@@ -47,6 +64,7 @@ impl Document {
         };
         self.history.push_undo(joined);
         self.dirty = true;
+        self.revision += 1;
     }
 
     /// Reverts the latest edit. Returns false if there was nothing to undo.
@@ -57,6 +75,7 @@ impl Document {
         edit.revert(&mut self.workbook);
         self.history.push_redo(edit);
         self.dirty = true;
+        self.revision += 1;
         true
     }
 
@@ -68,6 +87,7 @@ impl Document {
         edit.apply(&mut self.workbook);
         self.history.push_undo(edit);
         self.dirty = true;
+        self.revision += 1;
         true
     }
 }
@@ -127,6 +147,22 @@ mod tests {
         assert_eq!(doc.workbook.sheets().len(), 2);
         doc.undo();
         assert_eq!(doc.workbook.sheets().len(), 1);
+    }
+
+    #[test]
+    fn every_change_raises_the_revision() {
+        let mut doc = Document::default();
+        let mut seen = vec![doc.revision()];
+        set_a1(&mut doc, 1.0);
+        seen.push(doc.revision());
+        doc.undo();
+        seen.push(doc.revision());
+        doc.redo();
+        seen.push(doc.revision());
+        doc.touch();
+        seen.push(doc.revision());
+        assert_eq!(seen, [0, 1, 2, 3, 4]);
+        assert!(!doc.undo() || doc.revision() == 5);
     }
 
     #[test]
