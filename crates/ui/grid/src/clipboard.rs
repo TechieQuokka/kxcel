@@ -2,13 +2,15 @@ use excel_model::{CellAddr, CellRange, Sheet};
 
 /// Renders a range as tab-separated displayed values, the format other
 /// spreadsheets exchange through the clipboard. A value holding a tab, a line
-/// break, or a quote is quoted, as Excel does.
+/// break, or a quote is quoted, as Excel does. Hidden rows are left out.
 pub fn to_tsv(sheet: &Sheet, range: CellRange) -> String {
     let mut text = String::new();
-    for row in range.start.row..=range.end.row {
-        if row > range.start.row {
+    let mut first = true;
+    for row in (range.start.row..=range.end.row).filter(|row| !sheet.is_row_hidden(*row)) {
+        if !first {
             text.push('\n');
         }
+        first = false;
         for col in range.start.col..=range.end.col {
             if col > range.start.col {
                 text.push('\t');

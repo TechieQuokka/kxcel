@@ -152,3 +152,120 @@ fn dates_from_other_programs_are_read_as_dates() {
     assert_eq!(shown("A3"), "46329.5", "a time of day is not shown, so the number is");
     assert_eq!(loaded.loss_warnings, ["cell formatting"], "the time format would be lost");
 }
+
+fn table_book() -> Workbook {
+    use excel_model::{ColumnFilter, FilterRule, SheetMeta, Table};
+    let mut sheet = Sheet::new("Data");
+    let rows = [["지역", "가격"], ["서울", "7000"], ["부산", "3000"], ["서울", "2000"], ["대구", "9000"]];
+    for (r, row) in rows.iter().enumerate() {
+        for (c, text) in row.iter().enumerate() {
+            sheet.set(excel_model::CellAddr::new(r as u32 + 1, c as u32 + 1), Cell::parse_input(text));
+        }
+    }
+    let mut table = Table::new("매출", "B2:C6".parse().unwrap());
+    table.filters = vec![
+        ColumnFilter { column: 1, rule: FilterRule::Values(vec!["서울".into(), "대구".into()]) },
+        ColumnFilter { column: 2, rule: FilterRule::Condition(">5000".into()) },
+    ];
+    let mut meta = SheetMeta { tables: vec![table], ..Default::default() };
+    meta.hidden_rows = sheet.rows_hidden_by(&meta.tables);
+    sheet.set_meta(meta);
+    Workbook::from_sheets(vec![sheet])
+}
+
+#[test]
+fn tables_filters_and_hidden_rows_survive() {
+    let book = table_book();
+    assert_eq!(book.active().hidden_rows().iter().collect::<Vec<_>>(), [3, 4], "부산 and the cheap 서울");
+    assert_eq!(round_trip(&book), book);
+}
+
+#[test]
+fn a_saved_table_opens_in_calamine_and_warns_of_nothing() {
+    use calamine::{Reader, Xlsx, open_workbook};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("t.xlsx");
+    XlsxStore.save(&table_book(), &path).unwrap();
+    let mut file: Xlsx<_> = open_workbook(&path).unwrap();
+    file.load_tables().unwrap();
+    let table = file.table_by_name("매출").unwrap();
+    assert_eq!(table.columns(), ["지역", "가격"]);
+    assert!(file.worksheet_range("Data").is_ok());
+    assert_eq!(XlsxStore.load(&path).unwrap().loss_warnings, Vec::<String>::new());
+}
+
+#[test]
+fn a_table_from_another_writer_opens() {
+    use rust_xlsxwriter::{Table as XlsxTable, Workbook as Writer};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("other.xlsx");
+    let mut writer = Writer::new();
+    let sheet = writer.add_worksheet();
+    sheet.write_string(0, 0, "Name").unwrap();
+    sheet.write_string(0, 1, "Size").unwrap();
+    sheet.write_string(1, 0, "a").unwrap();
+    sheet.write_number(1, 1, 3.0).unwrap();
+    sheet.write_string(2, 0, "b").unwrap();
+    sheet.set_row_hidden(2).unwrap();
+    sheet.add_table(0, 0, 2, 1, &XlsxTable::new().set_name("Sizes")).unwrap();
+    writer.save(&path).unwrap();
+    let loaded = XlsxStore.load(&path).unwrap();
+    let sheet = loaded.workbook.active();
+    assert_eq!(sheet.tables().len(), 1);
+    assert_eq!(sheet.tables()[0].name, "Sizes");
+    assert_eq!(sheet.tables()[0].range.to_string(), "A1:B3");
+    assert!(sheet.is_row_hidden(2));
+    assert!(loaded.loss_warnings.is_empty(), "{:?}", loaded.loss_warnings);
+}
+
+#[test]
+fn a_table_that_is_only_a_header_gains_a_row() {
+    use excel_model::{SheetMeta, Table};
+    let mut sheet = Sheet::new("S");
+    sheet.set("A1".parse().unwrap(), Cell::parse_input("h"));
+    sheet.set_meta(SheetMeta { tables: vec![Table::new("T", "A1".parse().unwrap())], ..Default::default() });
+    let loaded = round_trip(&Workbook::from_sheets(vec![sheet]));
+    assert_eq!(loaded.active().tables()[0].range.to_string(), "A1:A2");
+}
+
+#[test]
+fn input_cells_survive_with_empty_cells_dates_and_whole_columns() {
+    let mut sheet = Sheet::new("Form");
+    sheet.set("B2".parse().unwrap(), Cell::parse_input("2026-03-01"));
+    sheet.set("B3".parse().unwrap(), Cell::parse_input("=B2+1"));
+    sheet.set("C2".parse().unwrap(), Cell::parse_input("고정"));
+    let mut meta = sheet.meta().clone();
+    meta.input_cells.add("B2:B5".parse().unwrap());
+    meta.input_cells.add("E1:E1048576".parse().unwrap());
+    sheet.set_meta(meta);
+    let book = Workbook::from_sheets(vec![sheet]);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("form.xlsx");
+    XlsxStore.save(&book, &path).unwrap();
+    let loaded = XlsxStore.load(&path).unwrap();
+    assert_eq!(loaded.workbook.active().meta(), book.active().meta());
+    assert_eq!(loaded.workbook.active().len(), 3, "empty input cells add no cells");
+    assert!(loaded.loss_warnings.is_empty(), "{:?}", loaded.loss_warnings);
+    let b2 = loaded.workbook.active().get("B2".parse().unwrap()).unwrap();
+    assert_eq!(b2.display(), "2026-03-01", "a date stays a date");
+}
+
+#[test]
+fn unlocked_cells_from_another_writer_are_input_cells() {
+    use rust_xlsxwriter::{Format, Workbook as Writer};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("other.xlsx");
+    let mut writer = Writer::new();
+    let unlocked = Format::new().set_unlocked();
+    let sheet = writer.add_worksheet();
+    sheet.write_number_with_format(0, 0, 5.0, &unlocked).unwrap();
+    sheet.write_blank(1, 0, &unlocked).unwrap();
+    sheet.write_number(0, 1, 1.0).unwrap();
+    sheet.protect();
+    writer.save(&path).unwrap();
+    let loaded = XlsxStore.load(&path).unwrap();
+    let ranges: Vec<String> =
+        loaded.workbook.active().meta().input_cells.ranges().iter().map(|r| r.to_string()).collect();
+    assert_eq!(ranges, ["A1:A2"]);
+    assert!(!loaded.loss_warnings.contains(&"cell formatting".to_owned()), "{:?}", loaded.loss_warnings);
+}

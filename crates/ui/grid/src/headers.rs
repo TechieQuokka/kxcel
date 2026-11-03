@@ -5,7 +5,9 @@ use crate::GridState;
 use crate::layout::{COL_HEADER_HEIGHT, Layout, ROW_HEADER_WIDTH};
 
 /// Draws the row and column headers, which stay fixed while cells scroll.
-pub(crate) fn paint(ui: &Ui, state: &GridState, layout: &Layout) {
+/// With `filtered`, row numbers take the accent color, as a hint that some
+/// rows are hidden; the numbers themselves stay the real ones.
+pub(crate) fn paint(ui: &Ui, state: &GridState, layout: &Layout, filtered: bool) {
     let visuals = ui.visuals();
     let painter = ui.painter().with_clip_rect(layout.rect);
     let line = Stroke::new(1.0, visuals.widgets.noninteractive.bg_stroke.color);
@@ -47,7 +49,14 @@ pub(crate) fn paint(ui: &Ui, state: &GridState, layout: &Layout) {
             row_painter.rect_filled(cell, 0.0, on_fill);
         }
         row_painter.rect_stroke(cell, 0.0, line, StrokeKind::Inside);
-        row_painter.text(cell.center(), Align2::CENTER_CENTER, row + 1, font.clone(), if on { on_text } else { text });
+        let color = if filtered {
+            visuals.selection.stroke.color
+        } else if on {
+            on_text
+        } else {
+            text
+        };
+        row_painter.text(cell.center(), Align2::CENTER_CENTER, row + 1, font.clone(), color);
     }
 
     let corner = Rect::from_min_size(layout.rect.min, vec2(ROW_HEADER_WIDTH, COL_HEADER_HEIGHT));

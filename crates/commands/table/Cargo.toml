@@ -1,0 +1,11 @@
+[package]
+name = "excel-cmd-table"
+description = "Table command: create, remove, resize, and list tables"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+excel-model.workspace = true
+excel-edit.workspace = true
+excel-command.workspace = true

@@ -9,6 +9,7 @@ use excel_ui_grid::{FunctionInfo, GridAction, GridState};
 use excel_ui_help_panel::{HelpAction, HelpSection, HelpState};
 
 use crate::actions::{self, CopiedCells};
+use crate::args::{AppMode, Launch};
 use crate::dialogs::{self, Dialog};
 use crate::settings::{self, Settings};
 use crate::{help, keymap, theme};
@@ -53,10 +54,29 @@ pub struct ExcelApp {
     /// Where settings are kept, or `None` to keep them only for this run.
     settings_path: Option<PathBuf>,
     title: String,
+    /// Set when the workbook runs as an app: only its grid, only input cells
+    /// changeable, and no commands.
+    app_mode: Option<AppMode>,
+    /// Where the cursor was last frame. In app mode, a message stays in the
+    /// status bar until the cursor moves.
+    last_cursor: excel_model::CellAddr,
 }
 
 impl ExcelApp {
+    #[cfg(test)]
     pub fn new(path: Option<PathBuf>) -> Self {
+        Self::launch(Launch { path, app: None })
+    }
+
+    /// Opens what the command line asked for, as a workbook or as an app.
+    pub fn launch(launch: Launch) -> Self {
+        let mut app = Self::open(launch.path);
+        app.grid.app_mode = launch.app.is_some();
+        app.app_mode = launch.app;
+        app
+    }
+
+    fn open(path: Option<PathBuf>) -> Self {
         let services = Services::default();
         let mut command_line = CommandLineState::default();
         let doc = match path {
@@ -94,6 +114,8 @@ impl ExcelApp {
             theme,
             settings_path,
             title: String::new(),
+            app_mode: None,
+            last_cursor: Default::default(),
         }
     }
 
@@ -221,6 +243,13 @@ impl ExcelApp {
     }
 
     fn apply_grid_action(&mut self, ctx: &egui::Context, action: GridAction) {
+        let action = match self.app_mode {
+            Some(_) => match self.app_action(action) {
+                Some(action) => action,
+                None => return,
+            },
+            None => action,
+        };
         let calculator = &self.services.calculator;
         match action {
             GridAction::Commit { addr, text } => actions::commit(&mut self.doc, calculator, addr, &text),
@@ -252,19 +281,54 @@ impl ExcelApp {
             GridAction::FocusCommandLine => self.focus = Focus::CommandLine,
             GridAction::FocusGrid => self.focus = Focus::Grid,
             GridAction::Notice(text) => self.command_line.set_message(text),
+            GridAction::RunCommand(line) => {
+                self.run_lines(ctx, vec![line]);
+            }
+        }
+    }
+
+    /// Copies or cuts a range. With hidden rows inside it, only the rows that
+    /// show are copied, as values, so pasting puts them next to each other and
+    /// a cut leaves its cells in place.
+    /// What app mode lets through of a grid action. Only input cells change:
+    /// a clear or paste reaches only them, a cut copies, and fills, commands,
+    /// and the command line are off.
+    fn app_action(&mut self, action: GridAction) -> Option<GridAction> {
+        let sheet = self.doc.workbook.active();
+        match action {
+            GridAction::Commit { addr, .. } if !sheet.is_input(addr) => None,
+            GridAction::Clear(range) => {
+                let calculator = &self.services.calculator;
+                let inputs: Vec<_> = sheet.meta().input_cells.overlapping(range).collect();
+                actions::clear_within(&mut self.doc, calculator, range, &inputs);
+                None
+            }
+            GridAction::Paste { at, text } => {
+                let inputs = sheet.meta().input_cells.clone();
+                let calculator = &self.services.calculator;
+                actions::paste_into(&mut self.doc, calculator, &mut self.copied, at, &text, |addr| {
+                    inputs.contains(addr)
+                });
+                None
+            }
+            GridAction::Cut(range) => Some(GridAction::Copy(range)),
+            GridAction::Fill { .. } | GridAction::RunCommand(_) | GridAction::FocusCommandLine => None,
+            action => Some(action),
         }
     }
 
     fn capture(&mut self, ctx: &egui::Context, range: excel_model::CellRange, cut: bool) {
         let (copied, text) = CopiedCells::capture(&self.doc, range, cut);
-        self.copied = Some(copied);
+        let hidden = self.doc.workbook.active().hidden_rows().count_within(range.start.row, range.end.row) > 0;
+        self.copied = (!hidden).then_some(copied);
         ctx.copy_text(text);
     }
 
     /// Stops a close with unsaved changes and asks first, as `exit` does.
     fn intercept_close(&mut self, ctx: &egui::Context) {
         let requested = ctx.input(|i| i.viewport().close_requested());
-        if requested && self.doc.dirty && !self.allow_close {
+        let nosave = self.app_mode.as_ref().is_some_and(|mode| mode.nosave);
+        if requested && self.doc.dirty && !self.allow_close && !nosave {
             ctx.send_viewport_cmd(ViewportCommand::CancelClose);
             if self.dialog.is_none() {
                 self.run_lines(ctx, vec!["exit".into()]);
@@ -296,7 +360,14 @@ impl ExcelApp {
             .and_then(|path| path.file_name())
             .map_or_else(|| "untitled".to_owned(), |name| name.to_string_lossy().into_owned());
         let mark = if self.doc.dirty { " *" } else { "" };
-        let title = format!("{name}{mark} - kxcel");
+        let title = match &self.app_mode {
+            // An app is named for itself, and one that never saves has nothing to mark.
+            Some(mode) => {
+                let name = mode.name.clone().unwrap_or(name);
+                if mode.nosave { name } else { format!("{name}{mark}") }
+            }
+            None => format!("{name}{mark} - kxcel"),
+        };
         if title != self.title {
             ctx.send_viewport_cmd(ViewportCommand::Title(title.clone()));
             self.title = title;
@@ -311,6 +382,18 @@ impl ExcelApp {
     fn current_content(&self) -> String {
         // The status bar has one line, so line breaks show as a mark.
         self.raw_content().replace('\n', " \u{21b5} ")
+    }
+
+    /// In app mode: the latest message, or else the current cell as it shows,
+    /// never its formula.
+    fn app_content(&self) -> String {
+        if let Some(message) = self.command_line.message() {
+            return message.to_owned();
+        }
+        if let Some(text) = self.grid.edit_text() {
+            return text.replace('\n', " \u{21b5} ");
+        }
+        self.doc.workbook.active().display(self.grid.cursor).replace('\n', " \u{21b5} ")
     }
 
     fn raw_content(&self) -> String {
@@ -338,8 +421,12 @@ impl ExcelApp {
         self.update_title(&ctx);
 
         let has_dialog = self.dialog.is_some();
+        let app_mode = self.app_mode.clone();
         if !has_dialog && keymap::save_pressed(&ctx) {
-            self.save_shortcut(&ctx);
+            match &app_mode {
+                Some(mode) if mode.nosave => self.command_line.set_message("This app does not save"),
+                _ => self.save_shortcut(&ctx),
+            }
         }
         // The window manager can also leave full screen, so follow what it reports.
         if let Some(fullscreen) = ctx.input(|i| i.viewport().fullscreen) {
@@ -349,7 +436,7 @@ impl ExcelApp {
             let notice = self.set_fullscreen(&ctx, None);
             self.command_line.set_message(notice);
         }
-        if !has_dialog && keymap::help_pressed(&ctx) {
+        if !has_dialog && keymap::help_pressed(&ctx) && app_mode.is_none() {
             self.help.toggle();
             if !self.help.is_open() && self.focus == Focus::Help {
                 self.focus = Focus::Grid;
@@ -361,23 +448,46 @@ impl ExcelApp {
 
         let surface = Frame::NONE.fill(ctx.global_style().visuals.panel_fill);
 
-        let command_action = Panel::bottom("excel_command_panel")
-            .exact_size(COMMAND_LINE_HEIGHT)
-            .frame(Frame::NONE.fill(ctx.global_style().visuals.extreme_bg_color))
-            .show(ui, |ui| excel_ui_command_line::show(ui, &mut self.command_line, &self.registry, command_focused))
-            .inner;
+        // An app has no command line, and its status bar shows messages instead.
+        let command_action = match app_mode {
+            Some(_) => None,
+            None => {
+                Panel::bottom("excel_command_panel")
+                    .exact_size(COMMAND_LINE_HEIGHT)
+                    .frame(Frame::NONE.fill(ctx.global_style().visuals.extreme_bg_color))
+                    .show(ui, |ui| {
+                        excel_ui_command_line::show(ui, &mut self.command_line, &self.registry, command_focused)
+                    })
+                    .inner
+            }
+        };
 
-        let content = self.current_content();
+        if app_mode.is_some() && self.grid.cursor != self.last_cursor {
+            self.command_line.clear_message();
+        }
+        self.last_cursor = self.grid.cursor;
+        let content = if app_mode.is_some() { self.app_content() } else { self.current_content() };
         let label = self.file_label();
         Panel::bottom("excel_status_panel")
             .exact_size(STATUS_BAR_HEIGHT)
             .frame(surface.inner_margin(egui::Margin::symmetric(10, 0)))
             .show(ui, |ui| {
-                excel_ui_status_bar::show(ui, self.doc.workbook.active(), self.grid.selection(), &content, &label);
+                excel_ui_status_bar::show(
+                    ui,
+                    self.doc.workbook.active(),
+                    self.grid.cursor,
+                    self.grid.selection(),
+                    &content,
+                    &label,
+                );
             });
 
         let help_focused = self.focus == Focus::Help && !has_dialog;
-        match excel_ui_help_panel::show(ui, &mut self.help, &self.help_sections, &help::TABS, help_focused) {
+        let help_action = match app_mode {
+            Some(_) => None,
+            None => excel_ui_help_panel::show(ui, &mut self.help, &self.help_sections, &help::TABS, help_focused),
+        };
+        match help_action {
             Some(HelpAction::FocusSearch) => self.focus = Focus::Help,
             Some(HelpAction::Leave) => self.focus = Focus::Grid,
             Some(HelpAction::Close) => {
@@ -1172,6 +1282,92 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_t_makes_a_table_and_typing_below_grows_it() {
+        let mut h = blank();
+        h.enter_cell("이름");
+        h.enter_cell("사과");
+        h.key(Key::ArrowUp);
+        h.key_with(Key::T, Modifiers::COMMAND);
+        let tables = |h: &Harness| -> Vec<String> {
+            h.app.doc.workbook.active().tables().iter().map(|t| format!("{} {}", t.name, t.range)).collect()
+        };
+        assert_eq!(tables(&h), ["Table1 A1:A2"]);
+        assert_eq!(h.app.focus, Focus::Grid, "the grid keeps the keyboard");
+        h.key(Key::ArrowDown);
+        h.enter_cell("배");
+        assert_eq!(tables(&h), ["Table1 A1:A3"]);
+        h.key_with(Key::Z, Modifiers::COMMAND);
+        assert_eq!(tables(&h), ["Table1 A1:A2"], "one undo takes back the value and the growth");
+        assert_eq!(h.value("A3"), CellValue::Empty);
+    }
+
+    #[test]
+    fn a_filtered_table_skips_hidden_rows_in_moves_stats_and_copies() {
+        let mut h = blank();
+        for text in ["값", "1", "20", "3", "40", "=SUM(A2:A5)"] {
+            h.enter_cell(text);
+        }
+        h.run_line("goto A1");
+        h.run_line("table create T");
+        h.run_line("goto A2");
+        h.run_line("table filter 값 >10");
+        let sheet = h.app.doc.workbook.active();
+        assert!(sheet.is_row_hidden(1) && sheet.is_row_hidden(3), "rows 2 and 4 are hidden");
+        assert_eq!(h.value("A6"), CellValue::Number(64.0), "formulas still count hidden rows");
+        assert_eq!(h.app.grid.cursor.to_string(), "A3", "the cursor left its hidden row");
+        assert_eq!(
+            excel_ui_status_bar::table_rows(sheet, h.app.grid.cursor).as_deref(),
+            Some("3 of 5 rows"),
+            "20, 40, and the sum pass"
+        );
+
+        h.key(Key::Escape);
+        h.key(Key::ArrowDown);
+        assert_eq!(h.app.grid.cursor.to_string(), "A5");
+        h.key(Key::ArrowUp);
+        h.key(Key::ArrowUp);
+        assert_eq!(h.app.grid.cursor.to_string(), "A1");
+        h.key_with(Key::ArrowDown, Modifiers::SHIFT);
+        h.key_with(Key::ArrowDown, Modifiers::SHIFT);
+        h.key_with(Key::ArrowDown, Modifiers::SHIFT);
+        assert_eq!(h.app.grid.selection().to_string(), "A1:A6");
+        let stats = excel_ui_status_bar::selection_stats(h.app.doc.workbook.active(), h.app.grid.selection());
+        assert_eq!(stats.map(|s| s.sum), Some(124.0), "20 + 40 + 64, leaving out 1 and 3");
+        let output = h.frame(vec![Event::Copy]);
+        let copied = output.platform_output.commands.iter().find_map(|command| match command {
+            egui::OutputCommand::CopyText(text) => Some(text.clone()),
+            _ => None,
+        });
+        assert_eq!(copied.as_deref(), Some("값\n20\n40\n64"));
+    }
+
+    #[test]
+    fn the_header_popup_runs_the_same_table_commands() {
+        let mut h = blank();
+        for text in ["과일", "배", "사과", "감"] {
+            h.enter_cell(text);
+        }
+        h.run_line("goto A1");
+        h.run_line("table create");
+        h.key(Key::Escape);
+        click(&mut h, cell_center(0, 0) + vec2(40.0, 0.0));
+        let popup = h.app.grid.filter_popup().expect("the button opens the popup").clone();
+        h.key(Key::Escape);
+        assert!(h.app.grid.filter_popup().is_none());
+        let ctx = h.ctx.clone();
+        h.app.apply_grid_action(&ctx, GridAction::RunCommand(popup.sort_line(true)));
+        let fruits = |h: &Harness| -> Vec<String> { ["A2", "A3", "A4"].map(|at| h.value(at).to_string()).to_vec() };
+        assert_eq!(fruits(&h), ["사과", "배", "감"]);
+        let mut only = popup.clone();
+        only.values.iter_mut().for_each(|value| value.1 = value.0 == "배");
+        h.app.apply_grid_action(&ctx, GridAction::RunCommand(only.apply_line().unwrap()));
+        let sheet = h.app.doc.workbook.active();
+        assert_eq!((1..=3).filter(|row| !sheet.is_row_hidden(*row)).count(), 1);
+        h.key_with(Key::Z, Modifiers::COMMAND);
+        assert!(!h.app.doc.workbook.active().is_row_hidden(1), "undo works as for a typed command");
+    }
+
+    #[test]
     fn frames_stay_fast_on_a_large_sheet() {
         let mut doc = Document::default();
         for row in 0..1_000_000u32 {
@@ -1190,5 +1386,122 @@ mod tests {
         let per_frame = started.elapsed() / 60;
         println!("1M cells: {per_frame:?} per frame");
         assert!(per_frame.as_millis() < 100, "took {per_frame:?} per frame");
+    }
+
+    #[test]
+    fn frames_stay_fast_on_a_large_filtered_sheet() {
+        let mut doc = Document::default();
+        let sheet = doc.workbook.active_mut();
+        for row in 0..300_000u32 {
+            sheet.set(excel_model::CellAddr::new(row, 0), excel_model::Cell::parse_input("1"));
+        }
+        let mut meta = sheet.meta().clone();
+        for start in (0..300_000).step_by(1000) {
+            meta.hidden_rows.insert_run(start + 1, start + 999);
+        }
+        sheet.set_meta(meta);
+        let mut h = Harness::new(ExcelApp::new(None));
+        h.app.doc = doc;
+        h.frame(Vec::new());
+        let started = std::time::Instant::now();
+        for frame in 0..30 {
+            h.app.grid.top_row = frame * 7919;
+            h.frame(Vec::new());
+            h.key(Key::PageDown);
+        }
+        let per_frame = started.elapsed() / 120;
+        assert!(per_frame.as_millis() < 100, "took {per_frame:?} per frame");
+    }
+
+    /// Asks to close the window, as its close button does. Returns the
+    /// commands the app sent back.
+    fn close_window(h: &mut Harness) -> Vec<ViewportCommand> {
+        h.time += 0.1;
+        let mut input = RawInput {
+            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), WINDOW)),
+            time: Some(h.time),
+            ..Default::default()
+        };
+        let info = egui::ViewportInfo { events: vec![egui::ViewportEvent::Close], ..Default::default() };
+        input.viewports.insert(egui::ViewportId::ROOT, info);
+        let app = &mut h.app;
+        let mut output = h.ctx.run_ui(input, |ui| app.show(ui));
+        output.textures_delta.clear();
+        output.viewport_output[&egui::ViewportId::ROOT].commands.clone()
+    }
+
+    /// A saved form with an input cell at B2, opened as an app.
+    fn app_harness(dir: &std::path::Path, nosave: bool) -> (Harness, PathBuf) {
+        let path = dir.join("form.xlsx");
+        let mut doc = Document::default();
+        let sheet = doc.workbook.active_mut();
+        sheet.set("A2".parse().unwrap(), excel_model::Cell::parse_input("수량"));
+        sheet.set("C2".parse().unwrap(), excel_model::Cell::parse_input("=B2*1000"));
+        let mut meta = sheet.meta().clone();
+        meta.input_cells.add("B2".parse().unwrap());
+        sheet.set_meta(meta);
+        excel_command::WorkbookStore::save(&excel_features::FileStore, &doc.workbook, &path).unwrap();
+        let mode = AppMode { nosave, name: Some("견적".into()), id: None };
+        let h = Harness::new(ExcelApp::launch(Launch { path: Some(path.clone()), app: Some(mode) }));
+        (h, path)
+    }
+
+    #[test]
+    fn app_mode_changes_only_input_cells_and_has_no_commands() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut h, _) = app_harness(dir.path(), false);
+        h.enter_cell("7");
+        assert_eq!(h.value("A1"), CellValue::Empty, "A1 is not an input cell");
+        h.key(Key::Tab);
+        assert_eq!(h.app.grid.cursor.to_string(), "B2", "Tab goes to the input cell");
+        h.enter_cell("3");
+        assert_eq!(h.value("C2"), CellValue::Number(3000.0));
+        h.key_with(Key::L, Modifiers::COMMAND);
+        assert_eq!(h.app.focus, Focus::Grid, "no command line");
+        h.key(Key::F1);
+        assert!(!h.app.help.is_open(), "no help");
+        h.key(Key::ArrowLeft);
+        assert_eq!(h.app.grid.cursor.to_string(), "A2");
+        h.key(Key::Delete);
+        assert_eq!(h.value("A2"), CellValue::Text("수량".into()), "nothing outside input cells clears");
+        assert_eq!(h.app.app_content(), "수량", "the status bar shows values");
+        let ctx = h.ctx.clone();
+        h.app.apply_grid_action(&ctx, GridAction::RunCommand("set A2 x".into()));
+        assert_eq!(h.value("A2"), CellValue::Text("수량".into()), "commands do not run");
+    }
+
+    #[test]
+    fn an_app_that_saves_saves_and_asks_on_close() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut h, path) = app_harness(dir.path(), false);
+        assert_eq!(h.app.title, "견적");
+        h.key(Key::Tab);
+        h.enter_cell("4");
+        assert_eq!(h.app.title, "견적 *");
+        h.key_with(Key::S, Modifiers::COMMAND);
+        assert!(!h.app.doc.dirty);
+        let saved = excel_features::Services::default().open(&path).unwrap();
+        assert_eq!(saved.workbook.active().value("B2".parse().unwrap()), &CellValue::Number(4.0));
+        h.key(Key::Tab);
+        h.enter_cell("5");
+        let commands = close_window(&mut h);
+        assert!(commands.contains(&ViewportCommand::CancelClose));
+        assert!(matches!(h.app.dialog, Some(Dialog::Confirm { .. })));
+    }
+
+    #[test]
+    fn a_nosave_app_never_saves_or_asks() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut h, path) = app_harness(dir.path(), true);
+        let before = std::fs::read(&path).unwrap();
+        h.key(Key::Tab);
+        h.enter_cell("9");
+        assert_eq!(h.app.title, "견적", "nothing to mark");
+        h.key_with(Key::S, Modifiers::COMMAND);
+        assert_eq!(std::fs::read(&path).unwrap(), before, "the file is untouched");
+        assert_eq!(h.app.app_content(), "This app does not save");
+        let commands = close_window(&mut h);
+        assert!(!commands.contains(&ViewportCommand::CancelClose));
+        assert!(h.app.dialog.is_none());
     }
 }

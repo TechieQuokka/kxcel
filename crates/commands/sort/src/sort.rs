@@ -1,9 +1,7 @@
-use std::cmp::Ordering;
-
-use excel_command::{Calculator, Command, CommandError, Context};
+use excel_command::{Command, CommandError, Context};
 use excel_edit::Edit;
 use excel_model::Doc;
-use excel_model::{Cell, CellAddr, CellInput, CellRange, CellValue, Sheet, col_from_name};
+use excel_model::{CellRange, col_from_name};
 
 pub(crate) struct Sort;
 
@@ -64,7 +62,7 @@ impl Command for Sort {
         let active = ctx.doc.workbook.active_index();
         let calculator = ctx.calculator;
         let edit = Edit::replacing_sheets(&ctx.doc.workbook, |sheets| {
-            sort_rows(&mut sheets[active], range, col, descending, calculator);
+            sheets[active].sort_rows(range, col, descending, |text, rows| calculator.translate(text, rows, 0));
         });
         ctx.apply(edit);
         ctx.say(format!("Sorted {range} by {}", column.to_ascii_uppercase()));
@@ -77,71 +75,11 @@ fn target_range(ctx: &Context<'_>) -> Option<CellRange> {
     if ctx.selection.is_single() { ctx.doc.workbook.active().used_range() } else { Some(ctx.selection) }
 }
 
-/// A row being sorted: where it came from, its sort key, and its cells by column.
-type Row = (u32, CellValue, Vec<(u32, Cell)>);
-
-fn sort_rows(sheet: &mut Sheet, range: CellRange, col: u32, descending: bool, calculator: &dyn Calculator) {
-    let mut rows: Vec<Row> = (range.start.row..=range.end.row)
-        .map(|row| {
-            let row_range =
-                CellRange { start: CellAddr::new(row, range.start.col), end: CellAddr::new(row, range.end.col) };
-            let cells: Vec<(u32, Cell)> =
-                sheet.iter_range(row_range).map(|(addr, cell)| (addr.col, cell.clone())).collect();
-            (row, sheet.value(CellAddr::new(row, col)).clone(), cells)
-        })
-        .collect();
-
-    // Stable, so rows with equal keys keep their order.
-    rows.sort_by(|a, b| compare(&a.1, &b.1, descending));
-
-    for addr in range.iter() {
-        sheet.set(addr, None);
-    }
-    for (index, (source_row, _, cells)) in rows.into_iter().enumerate() {
-        let row = range.start.row + index as u32;
-        let offset = i64::from(row) - i64::from(source_row);
-        for (cell_col, mut cell) in cells {
-            if let CellInput::Formula(text) = &cell.input {
-                cell.input = CellInput::Formula(calculator.translate(text, offset, 0));
-            }
-            sheet.set(CellAddr::new(row, cell_col), Some(cell));
-        }
-    }
-}
-
-/// Orders values as Excel does: numbers, text, booleans, errors. Empty cells
-/// come last in either direction.
-fn compare(a: &CellValue, b: &CellValue, descending: bool) -> Ordering {
-    match (a.is_empty(), b.is_empty()) {
-        (true, true) => return Ordering::Equal,
-        (true, false) => return Ordering::Greater,
-        (false, true) => return Ordering::Less,
-        (false, false) => {}
-    }
-    let ordering = match (a, b) {
-        (CellValue::Number(x), CellValue::Number(y)) => x.total_cmp(y),
-        (CellValue::Text(x), CellValue::Text(y)) => x.to_lowercase().cmp(&y.to_lowercase()),
-        (CellValue::Bool(x), CellValue::Bool(y)) => x.cmp(y),
-        _ => rank(a).cmp(&rank(b)),
-    };
-    if descending { ordering.reverse() } else { ordering }
-}
-
-fn rank(value: &CellValue) -> u8 {
-    match value {
-        CellValue::Number(_) => 0,
-        CellValue::Text(_) => 1,
-        CellValue::Bool(_) => 2,
-        CellValue::Error(_) => 3,
-        CellValue::Empty => 4,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use excel_command::testing::{NoCalculator, NoStore};
     use excel_edit::Document;
-    use excel_model::CellError;
+    use excel_model::Cell;
 
     use super::*;
 
@@ -194,12 +132,6 @@ mod tests {
         assert_eq!(column(&d, "A", 1..=5), ["1", "5", "z", "TRUE", ""]);
         run(&mut d, None, &["A", "desc"]).unwrap();
         assert_eq!(column(&d, "A", 1..=5), ["TRUE", "z", "5", "1", ""]);
-    }
-
-    #[test]
-    fn errors_sort_after_booleans() {
-        let order = compare(&CellValue::Bool(true), &CellValue::Error(CellError::Na), false);
-        assert_eq!(order, Ordering::Less);
     }
 
     #[test]

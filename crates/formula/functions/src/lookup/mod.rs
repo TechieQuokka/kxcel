@@ -26,7 +26,7 @@ pub(crate) fn compare(a: &CellValue, b: &CellValue) -> Option<Ordering> {
 pub(crate) fn equals(wanted: &CellValue, value: &CellValue, wildcards: bool) -> bool {
     match (wanted, value) {
         (CellValue::Text(pattern), CellValue::Text(_)) if wildcards && pattern.contains(['*', '?', '~']) => {
-            crate::criteria::Criterion::new(wanted).matches(value)
+            excel_model::Criterion::new(wanted).matches(value)
         }
         _ => compare(wanted, value) == Some(Ordering::Equal),
     }

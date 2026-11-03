@@ -20,6 +20,19 @@ pub fn clear(doc: &mut Document, calculator: &dyn Calculator, range: CellRange) 
     apply(doc, calculator, changes);
 }
 
+/// Clears the stored cells of `range` that lie inside one of `within`, as app
+/// mode clears only input cells. One undo step.
+pub fn clear_within(doc: &mut Document, calculator: &dyn Calculator, range: CellRange, within: &[CellRange]) {
+    let changes = doc
+        .workbook
+        .active()
+        .iter_range(range)
+        .filter(|(addr, _)| within.iter().any(|inside| inside.contains(*addr)))
+        .map(|(addr, _)| (addr, None))
+        .collect();
+    apply(doc, calculator, changes);
+}
+
 /// Continues `source` across `target`.
 ///
 /// Each line along the fill direction, such as each column when filling down,
@@ -99,6 +112,19 @@ pub fn paste(
     at: CellAddr,
     text: &str,
 ) {
+    paste_into(doc, calculator, copied, at, text, |_| true);
+}
+
+/// Pastes as [`paste`] does, changing only cells `allowed` accepts, as app
+/// mode pastes only into input cells. A cut's source cells stay unless allowed.
+pub fn paste_into(
+    doc: &mut Document,
+    calculator: &dyn Calculator,
+    copied: &mut Option<CopiedCells>,
+    at: CellAddr,
+    text: &str,
+    allowed: impl Fn(CellAddr) -> bool,
+) {
     let mut changes = BTreeMap::new();
     match copied.as_ref().filter(|copied| copied.tsv == text) {
         Some(copy) => {
@@ -135,6 +161,7 @@ pub fn paste(
             }
         }
     }
+    changes.retain(|addr, _| allowed(*addr));
     apply(doc, calculator, changes);
 }
 

@@ -6,7 +6,7 @@ use excel_features::{COMMAND_CATEGORIES, FUNCTION_CATEGORIES};
 use excel_ui_help_panel::{HelpEntry, HelpSection};
 
 /// Keyboard and mouse shortcuts. Keep in step with the grid, command line, and keymap.
-const KEYS: [(&str, &str); 19] = [
+const KEYS: [(&str, &str); 22] = [
     ("F1", "Show or hide this help"),
     ("F11", "Full screen on or off"),
     ("Ctrl+L", "Go to the command line"),
@@ -21,6 +21,9 @@ const KEYS: [(&str, &str); 19] = [
     ("Ctrl+Y", "Redo"),
     ("Ctrl+C / X / V", "Copy, cut, paste"),
     ("Shift+Arrows", "Extend the selection"),
+    ("Ctrl+Arrows", "Jump to the edge of the data"),
+    ("Ctrl+Shift+Arrows", "Extend the selection to the edge of the data"),
+    ("Ctrl+T", "Make the selection, or the data around the cursor, a table"),
     ("Drag corner", "Fill: continue 1, 2, 3 or 1, 2, 4, else copy"),
     ("Ctrl+drag corner", "Fill: count up a single number, or copy a series"),
     ("Drag corner back", "Clear the cells left out"),

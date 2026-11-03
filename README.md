@@ -29,6 +29,12 @@ type `=` to list functions.
 - A help panel with a page for every command and function (`F1`)
 - Full screen (`F11`) and dark or light themes (`theme light`)
 - Fill handle that continues series such as 1, 2, 3 and 1, 2, 4
+- `Ctrl+Arrow` jumps to the edge of the data
+- Tables (`Ctrl+T`, `table`) with sorting and filters, from the command line
+  or the `▼` on each header, saved as Excel tables
+- App mode: mark input cells (`app input B2:B9`), then open the workbook with
+  `kxcel --app`, or register it in the app list and dock with its own text
+  icon (`app install 견적 계산기`)
 - Multi-line cells, Korean input, undo, copy and paste
 - A headless CLI that runs the same commands as the app
 

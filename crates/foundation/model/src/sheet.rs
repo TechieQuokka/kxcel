@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
-use crate::{Cell, CellAddr, CellRange, CellValue};
+use crate::table::Shift;
+use crate::{Cell, CellAddr, CellRange, CellValue, MAX_COLS, MAX_ROWS, RowSet, SheetMeta, Table};
 
 /// Default column width in pixels.
 pub const DEFAULT_COL_WIDTH: f32 = 96.0;
@@ -13,11 +14,15 @@ pub struct Sheet {
     col_widths: HashMap<u32, f32>,
     /// One past the right-most column ever used. Clearing cells does not lower it.
     col_bound: u32,
+    meta: SheetMeta,
 }
 
 impl PartialEq for Sheet {
     fn eq(&self, other: &Self) -> bool {
-        self.name == other.name && self.cells == other.cells && self.col_widths == other.col_widths
+        self.name == other.name
+            && self.cells == other.cells
+            && self.col_widths == other.col_widths
+            && self.meta == other.meta
     }
 }
 
@@ -86,6 +91,145 @@ impl Sheet {
             .map(|(addr, cell)| (*addr, cell))
     }
 
+    /// True when `addr` holds something: a value, or a formula even if it
+    /// gives nothing.
+    pub fn is_filled(&self, addr: CellAddr) -> bool {
+        self.get(addr).is_some_and(|cell| cell.formula_text().is_some() || !cell.value.is_empty())
+    }
+
+    /// True when `addr` is filled and its row is not hidden.
+    pub fn is_shown_filled(&self, addr: CellAddr) -> bool {
+        self.is_filled(addr) && !self.is_row_hidden(addr.row)
+    }
+
+    /// Rows hidden by table filters.
+    pub fn hidden_rows(&self) -> &RowSet {
+        &self.meta.hidden_rows
+    }
+
+    /// Whether an app lets its users change this cell.
+    pub fn is_input(&self, addr: CellAddr) -> bool {
+        self.meta.input_cells.contains(addr)
+    }
+
+    pub fn is_row_hidden(&self, row: u32) -> bool {
+        self.meta.hidden_rows.contains(row)
+    }
+
+    /// `row` if it shows, else the nearest showing row past it, down or up.
+    pub fn shown_row(&self, row: u32, down: bool) -> Option<u32> {
+        self.meta.hidden_rows.skip(row, down)
+    }
+
+    /// The rows that `tables`' filters hide, judged by the cells as they are now.
+    pub fn rows_hidden_by(&self, tables: &[Table]) -> RowSet {
+        let mut hidden = RowSet::default();
+        for table in tables.iter().filter(|table| !table.filters.is_empty()) {
+            for row in table.data_rows() {
+                let passes = table.filters.iter().all(|filter| {
+                    let addr = CellAddr::new(row, filter.column);
+                    filter.rule.passes(self.value(addr), &self.display(addr))
+                });
+                if !passes {
+                    hidden.insert(row);
+                }
+            }
+        }
+        hidden
+    }
+
+    /// The nearest filled cell after `from` in one direction, given as a step
+    /// of -1, 0, or 1 in rows and columns, one of them zero. Skips gaps using the
+    /// ordered cell map, so a sparse sheet is cheap to search. Going up or down,
+    /// hidden rows count as empty.
+    pub fn next_filled(&self, from: CellAddr, rows: i8, cols: i8) -> Option<CellAddr> {
+        let filled = |addr: &&CellAddr| self.is_filled(**addr);
+        match (rows, cols) {
+            (0, 1) => {
+                let start = from.offset(0, 1)?;
+                let end = CellAddr::new(from.row, MAX_COLS - 1);
+                self.cells.range(start..=end).map(|(addr, _)| addr).find(filled).copied()
+            }
+            (0, -1) => {
+                let start = CellAddr::new(from.row, 0);
+                self.cells.range(start..from).map(|(addr, _)| addr).rev().find(filled).copied()
+            }
+            // Down and up visit only rows that hold cells, one lookup each, so
+            // wide sheets do not cost a scan of every cell.
+            (1, 0) => {
+                let mut row = from.row;
+                loop {
+                    row = self.cells.range(CellAddr::new(row.checked_add(1)?, 0)..).next()?.0.row;
+                    if self.is_row_hidden(row) {
+                        // Past the whole hidden run at once.
+                        row = self.shown_row(row, true)? - 1;
+                    } else if self.is_filled(CellAddr::new(row, from.col)) {
+                        return Some(CellAddr::new(row, from.col));
+                    }
+                }
+            }
+            (-1, 0) => {
+                let mut row = from.row;
+                loop {
+                    row = self.cells.range(..CellAddr::new(row, 0)).next_back()?.0.row;
+                    if self.is_row_hidden(row) {
+                        row = self.shown_row(row, false)? + 1;
+                    } else if self.is_filled(CellAddr::new(row, from.col)) {
+                        return Some(CellAddr::new(row, from.col));
+                    }
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// The block of data around `addr`, as Excel finds it for a new table: it
+    /// grows while any filled cell touches its edge, corners included. `None`
+    /// when nothing around `addr`, including itself, is filled.
+    pub fn current_region(&self, addr: CellAddr) -> Option<CellRange> {
+        let mut region = CellRange::single(addr);
+        let any_filled = |range: CellRange| self.iter_range(range).any(|(at, _)| self.is_filled(at));
+        loop {
+            let (start, end) = (region.start, region.end);
+            let wider = CellRange {
+                start: CellAddr::new(start.row.saturating_sub(1), start.col.saturating_sub(1)),
+                end: CellAddr::new((end.row + 1).min(MAX_ROWS - 1), (end.col + 1).min(MAX_COLS - 1)),
+            };
+            let edges = [
+                (start.row > 0).then(|| CellRange::new(wider.start, CellAddr::new(wider.start.row, wider.end.col))),
+                (end.row + 1 < MAX_ROWS)
+                    .then(|| CellRange::new(CellAddr::new(wider.end.row, wider.start.col), wider.end)),
+                (start.col > 0).then(|| CellRange::new(wider.start, CellAddr::new(wider.end.row, wider.start.col))),
+                (end.col + 1 < MAX_COLS)
+                    .then(|| CellRange::new(CellAddr::new(wider.start.row, wider.end.col), wider.end)),
+            ];
+            let [up, down, left, right] = edges.map(|edge| edge.is_some_and(any_filled));
+            if !(up || down || left || right) {
+                break;
+            }
+            region = CellRange {
+                start: CellAddr::new(
+                    if up { wider.start.row } else { start.row },
+                    if left { wider.start.col } else { start.col },
+                ),
+                end: CellAddr::new(
+                    if down { wider.end.row } else { end.row },
+                    if right { wider.end.col } else { end.col },
+                ),
+            };
+        }
+        if region.is_single() && !self.is_filled(addr) {
+            return None;
+        }
+        // Trim empty edge rows and columns left by an empty starting cell.
+        let used = self.iter_range(region).filter(|(at, _)| self.is_filled(*at)).map(|(at, _)| at);
+        let (mut top, mut left, mut bottom, mut right) = (u32::MAX, u32::MAX, 0, 0);
+        for at in used {
+            (top, left, bottom, right) = (top.min(at.row), left.min(at.col), bottom.max(at.row), right.max(at.col));
+        }
+        (top != u32::MAX).then(|| CellRange { start: CellAddr::new(top, left), end: CellAddr::new(bottom, right) })
+    }
+
     /// The smallest range holding every stored cell.
     pub fn used_range(&self) -> Option<CellRange> {
         let first = self.cells.keys().next()?;
@@ -108,13 +252,45 @@ impl Sheet {
         self.col_widths.iter().map(|(col, width)| (*col, *width))
     }
 
+    /// Tables, and anything else held besides cells and column widths.
+    pub fn meta(&self) -> &SheetMeta {
+        &self.meta
+    }
+
+    pub fn set_meta(&mut self, meta: SheetMeta) {
+        self.meta = meta;
+    }
+
+    pub fn tables(&self) -> &[Table] {
+        &self.meta.tables
+    }
+
+    /// The table holding `addr`.
+    pub fn table_at(&self, addr: CellAddr) -> Option<&Table> {
+        self.meta.tables.iter().find(|table| table.range.contains(addr))
+    }
+
+    /// The table with this name, ignoring case.
+    pub fn table_by_name(&self, name: &str) -> Option<&Table> {
+        self.meta.tables.iter().find(|table| table.name.eq_ignore_ascii_case(name))
+    }
+
+    /// The column of `table` whose header is `name`, ignoring case.
+    pub fn table_column(&self, table: &Table, name: &str) -> Option<u32> {
+        let name = name.trim();
+        (table.range.start.col..=table.range.end.col)
+            .find(|col| self.display(CellAddr::new(table.header_row(), *col)).trim().eq_ignore_ascii_case(name))
+    }
+
     /// Moves cells down to open `count` rows at `at`. Cells pushed off the sheet are dropped.
     pub fn insert_rows(&mut self, at: u32, count: u32) {
         self.remap_cells(|addr| if addr.row < at { Some(addr) } else { addr.offset(i64::from(count), 0) });
+        self.meta.shift(Shift { rows: true, insert: true, at, count });
     }
 
     /// Removes `count` rows at `at` and moves later rows up.
     pub fn delete_rows(&mut self, at: u32, count: u32) {
+        self.meta.shift(Shift { rows: true, insert: false, at, count });
         self.remap_cells(|addr| {
             if addr.row < at {
                 Some(addr)
@@ -130,10 +306,12 @@ impl Sheet {
     pub fn insert_cols(&mut self, at: u32, count: u32) {
         self.remap_cells(|addr| if addr.col < at { Some(addr) } else { addr.offset(0, i64::from(count)) });
         self.remap_widths(|col| if col < at { Some(col) } else { Some(col + count) });
+        self.meta.shift(Shift { rows: false, insert: true, at, count });
     }
 
     /// Removes `count` columns at `at` and moves later columns left.
     pub fn delete_cols(&mut self, at: u32, count: u32) {
+        self.meta.shift(Shift { rows: false, insert: false, at, count });
         self.remap_cells(|addr| {
             if addr.col < at {
                 Some(addr)
@@ -240,5 +418,110 @@ mod tests {
         sheet.delete_cols(0, 2);
         assert_eq!(addrs(&sheet), ["A1", "B1"]);
         assert_eq!(sheet.col_width(0), 200.0);
+    }
+}
+
+#[cfg(test)]
+mod table_tests {
+    use super::*;
+
+    fn sheet_with_table(range: &str) -> Sheet {
+        let mut sheet = Sheet::new("S");
+        sheet.set_meta(SheetMeta { tables: vec![Table::new("T", range.parse().unwrap())], ..Default::default() });
+        sheet
+    }
+
+    fn table_range(sheet: &Sheet) -> Option<String> {
+        sheet.tables().first().map(|table| table.range.to_string())
+    }
+
+    #[test]
+    fn rows_inserted_above_or_inside_move_or_grow_tables() {
+        let mut sheet = sheet_with_table("B2:C5");
+        sheet.insert_rows(0, 2);
+        assert_eq!(table_range(&sheet).unwrap(), "B4:C7");
+        sheet.insert_rows(5, 1);
+        assert_eq!(table_range(&sheet).unwrap(), "B4:C8");
+        sheet.insert_rows(20, 1);
+        assert_eq!(table_range(&sheet).unwrap(), "B4:C8");
+    }
+
+    #[test]
+    fn deleting_rows_shrinks_tables_and_the_header_row_removes_them() {
+        let mut sheet = sheet_with_table("A2:B6");
+        sheet.delete_rows(0, 1);
+        assert_eq!(table_range(&sheet).unwrap(), "A1:B5");
+        sheet.delete_rows(2, 2);
+        assert_eq!(table_range(&sheet).unwrap(), "A1:B3");
+        sheet.delete_rows(2, 10);
+        assert_eq!(table_range(&sheet).unwrap(), "A1:B2");
+        sheet.delete_rows(0, 1);
+        assert_eq!(table_range(&sheet), None);
+    }
+
+    #[test]
+    fn columns_move_tables_and_deleting_them_all_removes_one() {
+        let mut sheet = sheet_with_table("C1:E3");
+        sheet.insert_cols(3, 1);
+        assert_eq!(table_range(&sheet).unwrap(), "C1:F3");
+        sheet.delete_cols(1, 2);
+        assert_eq!(table_range(&sheet).unwrap(), "B1:D3");
+        sheet.delete_cols(0, 10);
+        assert_eq!(table_range(&sheet), None);
+    }
+
+    #[test]
+    fn tables_are_found_by_cell_name_and_header() {
+        let mut sheet = sheet_with_table("A1:B3");
+        sheet.set("B1".parse().unwrap(), Cell::parse_input("가격"));
+        let table = sheet.table_at("B3".parse().unwrap()).unwrap().clone();
+        assert!(sheet.table_at("C1".parse().unwrap()).is_none());
+        assert_eq!(sheet.table_by_name("t").unwrap().name, "T");
+        assert_eq!(sheet.table_column(&table, " 가격 "), Some(1));
+        assert_eq!(sheet.table_column(&table, "nope"), None);
+    }
+
+    #[test]
+    fn current_region_grows_while_data_touches_it() {
+        let mut sheet = Sheet::new("S");
+        for at in ["B2", "D2", "B3", "C3", "D3", "E4", "G9"] {
+            sheet.set(at.parse().unwrap(), Cell::parse_input("1"));
+        }
+        let region = |at: &str| sheet.current_region(at.parse().unwrap()).map(|r| r.to_string());
+        assert_eq!(region("B2").as_deref(), Some("B2:E4"), "a gap in the header and a diagonal touch");
+        assert_eq!(region("C2").as_deref(), Some("B2:E4"), "from an empty cell inside");
+        assert_eq!(region("A1").as_deref(), Some("B2:E4"), "from an empty cell next to it");
+        assert_eq!(region("G9").as_deref(), Some("G9"));
+        assert_eq!(region("J20"), None);
+    }
+
+    #[test]
+    fn equality_compares_tables() {
+        let sheet = sheet_with_table("A1:B3");
+        assert_ne!(sheet, Sheet::new("S"));
+    }
+}
+
+#[cfg(test)]
+mod input_tests {
+    use super::*;
+
+    #[test]
+    fn input_cells_move_with_inserted_and_deleted_rows_and_columns() {
+        let mut sheet = Sheet::new("S");
+        let mut meta = sheet.meta().clone();
+        meta.input_cells.add("B2:C3".parse().unwrap());
+        sheet.set_meta(meta);
+        sheet.insert_rows(0, 1);
+        sheet.insert_cols(2, 1);
+        let ranges: Vec<String> = sheet.meta().input_cells.ranges().iter().map(|r| r.to_string()).collect();
+        assert_eq!(ranges, ["B3:D4"]);
+        sheet.delete_rows(2, 1);
+        sheet.delete_cols(0, 2);
+        let ranges: Vec<String> = sheet.meta().input_cells.ranges().iter().map(|r| r.to_string()).collect();
+        assert_eq!(ranges, ["A3:B3"]);
+        assert!(sheet.is_input("B3".parse().unwrap()));
+        sheet.delete_rows(0, 5);
+        assert!(sheet.meta().input_cells.is_empty());
     }
 }

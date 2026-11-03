@@ -23,8 +23,10 @@ impl Document {
         Self { workbook, history: History::default(), path, loss_warnings, dirty: false }
     }
 
-    /// Applies an edit and records it for undo.
+    /// Applies an edit and records it for undo. Values entered just past a
+    /// table's edge grow the table, in the same undo step.
     pub fn apply(&mut self, edit: Edit) {
+        let edit = crate::with_table_growth(self.workbook.sheets(), edit);
         edit.apply(&mut self.workbook);
         self.history.record(edit);
         self.dirty = true;

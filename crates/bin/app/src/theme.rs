@@ -3,6 +3,7 @@
 
 use egui::{Color32, Context, Stroke, Visuals};
 use excel_command::Theme;
+use excel_ui_grid::GridPalette;
 
 /// Function names in help, set apart from command names, which use the accent
 /// color. Light backgrounds need a darker shade.
@@ -25,6 +26,9 @@ struct Palette {
     selection: Color32,
     error: Color32,
     warn: Color32,
+    table_header: Color32,
+    table_line: Color32,
+    input_tint: Color32,
 }
 
 const DARK: Palette = Palette {
@@ -38,6 +42,9 @@ const DARK: Palette = Palette {
     selection: Color32::from_rgb(58, 74, 87),
     error: Color32::from_rgb(232, 132, 132),
     warn: Color32::from_rgb(224, 184, 110),
+    table_header: Color32::from_rgb(40, 52, 62),
+    table_line: Color32::from_rgb(70, 112, 146),
+    input_tint: Color32::from_rgb(50, 47, 30),
 };
 
 const LIGHT: Palette = Palette {
@@ -51,6 +58,9 @@ const LIGHT: Palette = Palette {
     selection: Color32::from_rgb(204, 226, 244),
     error: Color32::from_rgb(190, 40, 40),
     warn: Color32::from_rgb(150, 100, 0),
+    table_header: Color32::from_rgb(226, 237, 247),
+    table_line: Color32::from_rgb(120, 164, 204),
+    input_tint: Color32::from_rgb(255, 248, 214),
 };
 
 /// Applies a theme to every widget.
@@ -70,4 +80,6 @@ pub fn apply(ctx: &Context, theme: Theme) {
     visuals.error_fg_color = palette.error;
     visuals.warn_fg_color = palette.warn;
     ctx.set_visuals(visuals);
+    GridPalette { table_header: palette.table_header, table_line: palette.table_line, input_tint: palette.input_tint }
+        .store(ctx);
 }

@@ -1,4 +1,4 @@
-use egui::{Pos2, Rect, pos2, vec2};
+use egui::{Pos2, Rect, Vec2, pos2, vec2};
 use excel_model::{CellAddr, CellRange, CellValue, MAX_COLS, MAX_ROWS, Sheet};
 
 /// Height of a row whose cells hold one line.
@@ -49,31 +49,38 @@ pub(crate) fn row_height(sheet: &Sheet, row: u32, line_height: f32) -> f32 {
 #[derive(Debug, Clone)]
 pub(crate) struct Layout {
     pub rect: Rect,
+    /// The row header's width and the column header's height, zero when
+    /// headers are hidden.
+    pub header: Vec2,
     pub top_row: u32,
     pub rows: Vec<RowSpan>,
     pub cols: Vec<ColSpan>,
 }
 
 impl Layout {
+    /// `shown` gives the first row at or after its argument that is not
+    /// hidden, or `None` when there is none, so hidden rows take no space.
     pub fn new(
         rect: Rect,
+        header: Vec2,
         top_row: u32,
         left_col: u32,
         col_width: impl Fn(u32) -> f32,
         row_height: impl Fn(u32) -> f32,
+        shown: impl Fn(u32) -> Option<u32>,
     ) -> Self {
         let mut rows = Vec::new();
-        let mut y = rect.top() + COL_HEADER_HEIGHT;
-        let mut row = top_row;
-        while y < rect.bottom() && row < MAX_ROWS {
+        let mut y = rect.top() + header.y;
+        let mut next = shown(top_row);
+        while let Some(row) = next.filter(|_| y < rect.bottom()) {
             let height = row_height(row);
             rows.push(RowSpan { row, y, height });
             y += height;
-            row += 1;
+            next = row.checked_add(1).filter(|row| *row < MAX_ROWS).and_then(&shown);
         }
 
         let mut cols = Vec::new();
-        let mut x = rect.left() + ROW_HEADER_WIDTH;
+        let mut x = rect.left() + header.x;
         let mut col = left_col;
         while x < rect.right() && col < MAX_COLS {
             let width = col_width(col);
@@ -81,7 +88,8 @@ impl Layout {
             x += width;
             col += 1;
         }
-        Self { rect, top_row, rows, cols }
+        let top_row = rows.first().map_or(top_row, |span: &RowSpan| span.row);
+        Self { rect, header, top_row, rows, cols }
     }
 
     pub fn visible_rows(&self) -> u32 {
@@ -94,11 +102,17 @@ impl Layout {
 
     /// The area holding cells, excluding the headers.
     pub fn body(&self) -> Rect {
-        Rect::from_min_max(self.rect.min + vec2(ROW_HEADER_WIDTH, COL_HEADER_HEIGHT), self.rect.max)
+        Rect::from_min_max(self.rect.min + self.header, self.rect.max)
     }
 
     pub fn row_span(&self, row: u32) -> Option<RowSpan> {
-        let index = row.checked_sub(self.top_row)? as usize;
+        let index = self.rows.binary_search_by_key(&row, |span| span.row).ok()?;
+        Some(self.rows[index])
+    }
+
+    /// The first shown row at or after `row`, if one is in view.
+    pub fn row_span_from(&self, row: u32) -> Option<RowSpan> {
+        let index = self.rows.partition_point(|span| span.row < row);
         self.rows.get(index).copied()
     }
 
@@ -133,7 +147,10 @@ impl Layout {
 
     /// The column whose right edge is under a position in the column header.
     pub fn resize_handle_at(&self, pos: Pos2) -> Option<ColSpan> {
-        let header_top = self.rect.top()..=self.rect.top() + COL_HEADER_HEIGHT;
+        let header_top = self.rect.top()..=self.rect.top() + self.header.y;
+        if self.header.y <= 0.0 {
+            return None;
+        }
         if !header_top.contains(&pos.y) {
             return None;
         }
@@ -147,9 +164,11 @@ mod tests {
 
     use super::*;
 
+    const HEADERS: Vec2 = vec2(ROW_HEADER_WIDTH, COL_HEADER_HEIGHT);
+
     fn layout() -> Layout {
         let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(ROW_HEADER_WIDTH + 300.0, COL_HEADER_HEIGHT + 96.0));
-        Layout::new(rect, 10, 2, |_| 100.0, |_| ROW_HEIGHT)
+        Layout::new(rect, HEADERS, 10, 2, |_| 100.0, |_| ROW_HEIGHT, Some)
     }
 
     #[test]
@@ -203,17 +222,32 @@ mod tests {
     #[test]
     fn stops_at_the_last_row_of_a_sheet() {
         let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(500.0, 500.0));
-        let layout = Layout::new(rect, MAX_ROWS - 2, 0, |_| 100.0, |_| ROW_HEIGHT);
+        let layout = Layout::new(rect, HEADERS, MAX_ROWS - 2, 0, |_| 100.0, |_| ROW_HEIGHT, Some);
         assert_eq!(layout.visible_rows(), 2);
     }
 
     #[test]
     fn tall_rows_push_later_rows_down() {
         let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(500.0, 500.0));
-        let layout = Layout::new(rect, 0, 0, |_| 100.0, |row| if row == 0 { 60.0 } else { ROW_HEIGHT });
+        let layout = Layout::new(rect, HEADERS, 0, 0, |_| 100.0, |row| if row == 0 { 60.0 } else { ROW_HEIGHT }, Some);
         assert_eq!(layout.row_span(1).unwrap().y, COL_HEADER_HEIGHT + 60.0);
         let inside_first_row = pos2(ROW_HEADER_WIDTH + 10.0, COL_HEADER_HEIGHT + 50.0);
         assert_eq!(layout.cell_at(inside_first_row), Some(CellAddr::new(0, 0)));
+    }
+
+    #[test]
+    fn hidden_rows_take_no_space() {
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(500.0, COL_HEADER_HEIGHT + 3.0 * ROW_HEIGHT));
+        let shown = |row: u32| Some(if (2..=900).contains(&row) { 901 } else { row });
+        let layout = Layout::new(rect, HEADERS, 0, 0, |_| 100.0, |_| ROW_HEIGHT, shown);
+        assert_eq!(layout.rows.iter().map(|span| span.row).collect::<Vec<_>>(), [0, 1, 901]);
+        assert!(layout.row_span(5).is_none());
+        assert_eq!(layout.row_span(901).unwrap().y, COL_HEADER_HEIGHT + 2.0 * ROW_HEIGHT);
+        assert_eq!(layout.row_span_from(5).unwrap().row, 901);
+        let third_row = pos2(ROW_HEADER_WIDTH + 10.0, COL_HEADER_HEIGHT + 2.5 * ROW_HEIGHT);
+        assert_eq!(layout.cell_at(third_row), Some(CellAddr::new(901, 0)));
+        let from_hidden = Layout::new(rect, HEADERS, 4, 0, |_| 100.0, |_| ROW_HEIGHT, shown);
+        assert_eq!(from_hidden.top_row, 901, "a hidden top row starts at the next shown one");
     }
 
     #[test]

@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use crate::xml::{elements, raw_attribute as attribute, section, whole_elements};
+
 /// Finds features recorded inside sheet data. Cells whose style is in `kept`
 /// lose nothing on saving.
 pub(super) fn warnings_from_sheets(sheets: &[String], kept: &HashSet<String>) -> Vec<String> {
@@ -33,9 +35,10 @@ fn has_styled_cell(sheet: &str, kept: &HashSet<String>) -> bool {
     })
 }
 
-/// The cell styles, by index, that only show a date: a date number format,
-/// with the default font, fill, and border, and no alignment. The application
-/// keeps dates, so saving loses nothing from these.
+/// The cell styles, by index, that only show a date, unlock their cells, or
+/// both: a date or default number format, the default font, fill, and border,
+/// no alignment, and nothing but unlocking for protection. The application
+/// keeps dates and input cells, so saving loses nothing from these.
 pub(super) fn kept_styles(styles: &str) -> HashSet<String> {
     let custom_dates: HashSet<&str> = elements(styles, "numFmt")
         .filter(|element| attribute(element, "formatCode").is_some_and(is_date_code))
@@ -44,13 +47,23 @@ pub(super) fn kept_styles(styles: &str) -> HashSet<String> {
     let Some(cell_xfs) = section(styles, "cellXfs") else {
         return HashSet::new();
     };
-    elements(cell_xfs, "xf")
+    whole_elements(cell_xfs, "xf")
+        .into_iter()
         .enumerate()
-        .filter(|(_, element)| {
-            let plain = |name| attribute(element, name).is_none_or(|id| id == "0");
-            let format = attribute(element, "numFmtId").unwrap_or("0");
+        .filter(|(_, xf)| {
+            let head = xf.split('>').next().unwrap_or_default();
+            let plain = |name| attribute(head, name).is_none_or(|id| id == "0");
+            let format = attribute(head, "numFmtId").unwrap_or("0");
             let date = matches!(format, "14" | "15" | "16" | "17") || custom_dates.contains(format);
-            date && plain("fontId") && plain("fillId") && plain("borderId") && element.ends_with('/')
+            let unlocked = crate::tables::is_unlocked(xf);
+            let children = if head.ends_with('/') { "" } else { &xf[head.len() + 1..] };
+            let only_unlocking = children.replace("</xf>", "").trim().is_empty()
+                || (unlocked && children.matches('<').count() <= 2 && !children.contains("<alignment"));
+            (date || (unlocked && format == "0"))
+                && plain("fontId")
+                && plain("fillId")
+                && plain("borderId")
+                && only_unlocking
         })
         .map(|(index, _)| index.to_string())
         .collect()
@@ -75,27 +88,6 @@ fn is_date_code(code: &str) -> bool {
         }
     }
     (plain.contains('y') || plain.contains('d')) && !plain.contains('h') && !plain.contains('s')
-}
-
-/// The text inside `<name ...>` and `</name>`.
-fn section<'a>(xml: &'a str, name: &str) -> Option<&'a str> {
-    let start = xml.find(&format!("<{name}"))?;
-    let end = xml[start..].find(&format!("</{name}>"))?;
-    Some(&xml[start..start + end])
-}
-
-/// The attribute text of each `<name ...>` element, up to its closing `>`. A
-/// self-closing element's text ends with `/`.
-fn elements<'a>(xml: &'a str, name: &str) -> impl Iterator<Item = &'a str> {
-    let open = format!("<{name} ");
-    let parts: Vec<&'a str> = xml.split(open.as_str()).skip(1).collect();
-    parts.into_iter().map(|rest| rest.split('>').next().unwrap_or_default())
-}
-
-fn attribute<'a>(element: &'a str, name: &str) -> Option<&'a str> {
-    let start = element.find(&format!("{name}=\""))? + name.len() + 2;
-    let end = element[start..].find('"')?;
-    Some(&element[start..start + end])
 }
 
 #[cfg(test)]
@@ -131,6 +123,18 @@ mod tests {
         let mut kept: Vec<String> = kept_styles(styles).into_iter().collect();
         kept.sort();
         assert_eq!(kept, ["1", "2"], "bold, a time, alignment, and text formats are lost");
+    }
+
+    #[test]
+    fn keeps_styles_that_only_unlock_cells() {
+        let styles = r#"<cellXfs count="4"><xf numFmtId="0" fontId="0"/>
+            <xf numFmtId="0" fontId="0" applyProtection="1"><protection locked="0"/></xf>
+            <xf numFmtId="14" fontId="0" applyProtection="1"><protection locked="0"/></xf>
+            <xf numFmtId="0" fontId="2" applyProtection="1"><protection locked="0"/></xf>
+            <xf numFmtId="0" fontId="0"><protection locked="0"/><alignment horizontal="left"/></xf></cellXfs>"#;
+        let mut kept: Vec<String> = kept_styles(styles).into_iter().collect();
+        kept.sort();
+        assert_eq!(kept, ["1", "2"], "a bold font or alignment is still lost");
     }
 
     #[test]

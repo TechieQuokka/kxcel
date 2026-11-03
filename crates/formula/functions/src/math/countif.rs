@@ -1,8 +1,8 @@
 use excel_model::{CellError, CellValue, Doc};
 
 use super::cells;
-use crate::criteria::Criterion;
 use crate::{Arg, Function, scalar};
+use excel_model::Criterion;
 
 pub(crate) struct CountIf;
 

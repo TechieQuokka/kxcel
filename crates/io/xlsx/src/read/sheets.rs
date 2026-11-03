@@ -22,5 +22,13 @@ pub fn read(path: &Path) -> Result<Workbook, StoreError> {
         formulas::add_formulas(&mut sheet, &formula_range);
         sheets.push(sheet);
     }
+    let archive = std::fs::File::open(path).map_err(|e| file_error("open", path, e))?;
+    let mut archive = zip::ZipArchive::new(archive).map_err(|e| file_error("read", path, e))?;
+    let mut meta = crate::tables::read_meta(&mut archive).map_err(|e| file_error("read", path, e))?;
+    for sheet in &mut sheets {
+        if let Some(found) = meta.sheets.remove(&sheet.name) {
+            sheet.set_meta(found);
+        }
+    }
     Ok(Workbook::from_sheets(sheets))
 }

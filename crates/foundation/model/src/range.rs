@@ -31,6 +31,14 @@ impl CellRange {
         (self.start.row..=self.end.row).contains(&addr.row) && (self.start.col..=self.end.col).contains(&addr.col)
     }
 
+    /// True when the two ranges share at least one cell.
+    pub fn overlaps(&self, other: CellRange) -> bool {
+        self.start.row <= other.end.row
+            && other.start.row <= self.end.row
+            && self.start.col <= other.end.col
+            && other.start.col <= self.end.col
+    }
+
     pub fn rows(&self) -> u32 {
         self.end.row - self.start.row + 1
     }

@@ -1,7 +1,7 @@
 # kxcel: Design Document
 
-Status: implemented through 1.20.0. Hand checks for 1.6.0 onward are listed in section 8.
-Version: 1.20.0. All crates share the workspace version. A new feature raises the
+Status: implemented through 1.29.0. Hand checks for 1.6.0 onward are listed in section 8.
+Version: 1.29.0. All crates share the workspace version. A new feature raises the
 minor version, such as 1.0.0 to 1.1.0, and a bug fix raises the patch version,
 such as 1.1.0 to 1.1.1.
 Last updated: 2026-11-02
@@ -61,6 +61,10 @@ Features outside this first version are added when real use calls for them.
 ### Cells
 
 - Cell selection, arrow key movement, and editing by typing or double-click
+- `Ctrl+Arrow` jumps to the edge of the data as Excel does: to the end of a
+  run of filled cells, else to the next filled cell, else to the sheet edge.
+  `Ctrl+Shift+Arrow` extends the selection the same way. A formula counts as
+  filled even when it gives nothing (1.21.0)
 - Drag range selection, showing sum, average, and count
 - Fill handle: dragging copies formulas and adjusts relative references.
   Dragging back inside the selection clears the cells left out, previewed in
@@ -192,6 +196,8 @@ line put back, so it can be fixed and run again (1.6.0).
 | `sheet` | List, switch, add, rename, or delete sheets. `sheet rename <name>` and `sheet delete` act on the sheet showing (1.20.0) |
 | `fullscreen` | Full screen: `fullscreen on`, `fullscreen off`, or just `fullscreen` to switch, as `F11` does (1.18.0) |
 | `theme` | Colors: `theme dark`, `theme light`, or just `theme` to switch. Remembered for the next start (1.19.0) |
+| `table` | Tables: `table create [name]`, `table remove`, `table resize <range>`, `table sort <column> [desc]` (1.23.0), `table filter <column> <values or condition>` (1.24.0), or just `table` to list them (1.22.0) |
+| `app` | App mode: `app input <range>` marks input cells, `app input clear [<range>]` unmarks them, and `app input` lists them (1.27.0). `app install <name> [nosave] [icon=<text>]`, `app uninstall <name>`, and `app list` register workbooks as apps (1.29.0) |
 | `set` | Set a cell, so `kxcel-cli` can enter data. It takes the rest of its line as typed, so quotes in formulas stay (1.15.1) |
 | `help` | Show commands, functions, and keys, optionally filtered: `help sort` (1.3.0) |
 
@@ -244,11 +250,181 @@ Picking a folder lists its contents next. A path with spaces is quoted, and
   is lost. Saving to a new file with `save <file>` needs no confirmation
 - A save replaces the file in one step, so a failure leaves the old file intact
 
+### Tables (1.22.0)
+
+- A table is a named range whose first row holds column headers.
+  `table create [name]` and `Ctrl+T` make one from the selection, or with one
+  cell selected, from the block of data around it: the range grows while any
+  filled cell touches its edge, corners included, as Excel's current region
+  does.
+- Empty or repeated headers are written as names such as `Column3`, as Excel
+  does. Names default to `Table1`, `Table2`, and so on, are unique in the
+  workbook ignoring case, and follow Excel's rules: a letter or underscore
+  first, then letters, digits, underscores, or periods, and nothing that reads
+  as a reference, such as `A1` or `R1C1`. Tables cannot overlap.
+- `table remove` stops the table at the cursor being a table and keeps its
+  cells. `table resize <range>` sets its range, which must still start at its
+  header row. `table` lists the sheet's tables.
+- Growth: a value set in the row just below a table, within its columns, adds
+  that row, and a value set in the header row just right of it adds a column.
+  Several such rows in one edit, as from a paste, all join. Clearing never
+  grows a table, and a table never grows into another. The rule lives in
+  `Document::apply`, so typing, paste, fill, `set`, and `kxcel-cli` all follow
+  it, and one undo takes back the value and the growth together.
+- Inserting and deleting rows and columns moves and resizes tables. Deleting a
+  table's header row, or all its columns, removes the table.
+- Look: the header row has its own background and bold text, drawn twice a
+  hair apart since the cell font has no bold face, and a line outlines the
+  table. The colors are in each theme's palette in `theme.rs`, handed to the
+  grid as a `GridPalette`, since `egui::Visuals` has no slots for them.
+- Tables live in the sheet's `SheetMeta`. Changes to it alone go through
+  `Edit::SetMeta`, which the formula engine skips, and growth is an
+  `Edit::Batch` of the cell change and a `SetMeta`, which the engine updates
+  incrementally. Structured references such as `=SUM(Table1[가격])` are not
+  supported.
+- Sort (1.23.0): `table sort <column> [desc]` sorts the rows below the header
+  by the column with that header, ignoring case. A header with spaces needs no
+  quotes, since a trailing `desc` or `asc` is read first. The order is the same
+  as `sort`, with empty cells last either way, and formulas move with their
+  rows. It sorts once: the table remembers the column and direction only to
+  draw an arrow on that header, which follows the table when columns move
+  around it and goes when columns inside it change. The value ordering and row
+  moving live in `excel-model` (`sort_order`, `Sheet::sort_rows`), so `sort`
+  and `table sort` share them without one command depending on another.
+- Filters (1.24.0): `table filter <column> <values...>` shows rows whose cell
+  in that column shows one of the values, ignoring case. One argument that
+  starts with `<`, `>`, or `=`, holds a wildcard, or is `""` is a condition
+  written as for `COUNTIF`, such as `>5000`, `<>서울`, `사과*`, or `""` for
+  blanks. A new filter on a column replaces its old one, and filters on
+  several columns must all pass. `table filter <column> clear` and
+  `table filter clear` remove filters. The conditions are the `Criterion` that
+  `SUMIF` and the like use, moved to `excel-model` so commands reach it
+  without depending on the formula crates.
+- Hidden rows: rows that fail are hidden. They are kept in the sheet's
+  `SheetMeta`, not worked out from the filters, so editing a cell never makes
+  its row vanish: they change only when filters apply again, by
+  `table filter`, `table sort`, `table resize`, or `table remove`. They are
+  stored as runs of rows (`RowSet`), so a filter hiding most of a million rows
+  is cheap to pass over, and they move with inserted and deleted rows.
+- With hidden rows:
+  - The grid lays out, scrolls, and moves the cursor through shown rows only,
+    and row numbers keep their real values but take the accent color.
+    `Ctrl+Arrow` treats hidden rows as empty. A cursor whose row gets hidden
+    moves to the nearest shown row, and `goto` to a hidden row says so.
+  - The status bar's sum, average, and count leave hidden rows out, and for a
+    filtered table at the cursor it shows `3 of 5 rows`.
+  - `Ctrl+C` copies the shown rows as values, so they paste next to each
+    other, and a cut over hidden rows copies instead of moving cells.
+  - Formulas, fill, and paste still act on every row. `SUBTOTAL` is not
+    supported.
+- Header popup (1.25.0): each header cell has a `▼` at its right edge,
+  filled in the accent color while its column has a filter, with the sort
+  arrow to its left. Clicking it puts the cursor on that header and opens a
+  popup with Sort ascending and Sort descending, a condition box, a search box
+  over a ticked list of the column's distinct values as they show (blanks as
+  `(Blanks)`, at most 5,000), and Apply, Clear filter, and Cancel. Every choice
+  becomes a `table` command line, run through the registry as if typed, so the
+  popup and the command line behave the same and undo the same way. The grid
+  returns it as `GridAction::RunCommand` and knows nothing about commands
+  beyond quoting the arguments. A single ticked value is written twice, so it
+  is never read as a condition. `Esc` or a click elsewhere closes the popup
+  without changes, and while it is open its text boxes have the keyboard.
+- Files (1.26.0): saving writes each table in Excel's table format, with its
+  name, range, header row, and filter buttons, every hidden row as hidden, and
+  every column filter, so Excel shows the same table and rows. Opening reads
+  them back from files made here or by Excel, so tables no longer count as
+  something saving would lose.
+  - `rust_xlsxwriter` 0.102.0 writes tables and hidden rows but not a table's
+    filter conditions, and `calamine` 0.38.0 does not say where a table is. So
+    tables, filters, and hidden rows are read from the file's XML through the
+    `zip` crate, as `inspect` reads styles, and after `rust_xlsxwriter` has
+    written a file, each filtered table's part gets its `filterColumn`
+    elements added before the one-step replace that saving already does.
+  - Value filters are written as Excel's `filters`, with `blank` for blank
+    cells, and conditions as one `customFilter`, a date as its day number.
+    Every condition `table filter` takes has an Excel form.
+  - Opening keeps value lists and single conditions. Other filters, such as
+    top 10, colors, or two conditions joined, are left out with a warning, as
+    are tables without a header row. A totals row is left out of the range.
+  - Header cells are written as the names they show, made unique, since Excel
+    requires it, and a table that is only a header gains an empty row.
+  - Saving to `.csv` warns that tables and filters are left out.
+
+### App mode
+
+- Input cells (1.27.0): `app input <range>` marks the cells an app lets its
+  users change, empty ones included. `app input clear` unmarks every input
+  cell on the sheet, `app input clear <range>` unmarks some, and `app input`
+  lists the ranges. Every change is one undo step through `Edit::SetMeta`, so
+  formulas are not recalculated.
+- They are kept in the sheet's `SheetMeta` as a `RangeSet`, ranges that never
+  overlap, split when part is cleared and joined back when the ranges make one
+  rectangle again. Inserting and deleting rows and columns moves them.
+- In the grid they show a light tint from the theme palette, so it is clear
+  what an app will let users change. Outside app mode every cell can still be
+  changed.
+- Files: input cells are saved as Excel's unlocked cells, combined with the
+  date format where a cell is a date. Empty input cells are written as
+  formatted blanks, and an input range covering whole columns as column
+  formats. Opening reads the unlocked cell styles from `xl/styles.xml` and the
+  cells and columns using them, so a file from Excel with unlocked cells gives
+  the same input cells. Styles that only unlock cells, with or without a date
+  format, do not count as formatting saving would lose. Saving to `.csv` warns
+  that input cells are left out.
+- App window (1.28.0): `kxcel --app [--nosave] [--name <name>] [--id <id>]
+  <file>` opens a workbook as an app. The window shows only the grid, without
+  the command line, help, or row and column headers. The status bar stays,
+  showing the current cell as it shows, never its formula, or the latest
+  message until the cursor moves.
+  - Only input cells change. Typing, `F2`, or a double-click elsewhere is
+    undone at once with a note, `Delete` and paste reach only input cells, a
+    cut copies, and the fill handle and the header `▼` are gone. Any cell can
+    still be selected and read.
+  - `Tab` and `Enter` move to the next input cell, left to right, then down,
+    wrapping at the end, and `Shift` goes back. Arrows move one cell as usual.
+  - `Ctrl+L`, `F1`, `Ctrl+T`, and every other command are off. `F11` and the
+    saved theme still apply.
+  - Saving: by default `Ctrl+S` saves and closing with changes asks Save,
+    Don't save, or Cancel, as usual. With `--nosave` nothing saves, `Ctrl+S`
+    says so, and closing never asks, so each start is fresh.
+  - The window title is `--name`, or else the file name. `--id` sets the
+    window's app id, so the desktop matches the window to the app's own entry
+    and icon.
+  - The grid has an `app_mode` flag for its rules, and the application also
+    filters grid actions in app mode, so the rule holds even if the grid
+    reports an edit it should not.
+- Registering apps (1.29.0): `app install <name> [nosave] [icon=<text>]`
+  registers the open workbook, which must be saved with nothing unsaved, as an
+  app named `<name>` in the app list and dock. `app uninstall <name>` removes
+  the registration and keeps the file, and `app list` lists registered apps.
+  It only writes files, so `kxcel-cli` can do it too.
+  - Each app's id comes from a short FNV-1a hash of its name, such as
+    `kxcel-app-3f9a1c2e`, since desktop file names must be plain ASCII and
+    names may be Korean. The same name always gives the same id, so installing
+    again updates the app.
+  - It writes, for the current user under `$XDG_DATA_HOME` or
+    `~/.local/share`, `applications/<id>.desktop` and
+    `icons/hicolor/scalable/apps/<id>.svg`, then runs
+    `update-desktop-database` and `gtk-update-icon-cache` as
+    `packaging/install.sh` does, ignoring their absence.
+  - The entry's `Exec` runs this program, or from `kxcel-cli` the `kxcel`
+    beside it, with `--app --id <id> --name <name> [--nosave] <file>`, quoted
+    as the desktop entry rules ask. `Icon` and `StartupWMClass` are the id, so
+    the dock matches the window to its entry. Extra `X-Kxcel-` keys mark the
+    entry as an app and record its file, so `app list` and `app uninstall`
+    need no other record, and entries not marked are never touched.
+  - The icon is the name's first two letters, not counting spaces, such as
+    `견적` for `견적 계산기` or `Bu` for `Budget`, or up to three from
+    `icon=`, in bold white on a rounded square. Its color comes from the name
+    out of ten hues dark enough for white text, so different apps tend to get
+    different colors. The SVG names a generic sans-serif font, which resolves
+    to one with Korean letters on Ubuntu.
+
 ### Excluded from the first version
 
 - Decoration: fonts, colors, and borders
 - Charts, merged cells, printing, and macros
-- Filters and pivot tables
+- Pivot tables, and filters outside tables
 
 ### View (1.18.0, 1.19.0)
 
@@ -349,7 +525,7 @@ the desktop entry, so run `packaging/install.sh` to see it in the dock.
 
 ### Project structure
 
-There are 24 crates. Package names carry an `excel-` prefix because a crate
+There are 26 crates. Package names carry an `excel-` prefix because a crate
 named `core` could conflict with Rust's built-in `core` library.
 
 ```
@@ -369,9 +545,10 @@ excel/
 └── crates/
     ├── foundation/
     │   ├── model/                   # excel-model
-    │   │   └── src/ lib, address, range, value, cell, date, doc, sheet, workbook
+    │   │   └── src/ lib, address, range, ranges, rows, value, cell, criterion, date,
+│   │            doc, sheet, sort, table, workbook
     │   ├── edit/                    # excel-edit
-    │   │   └── src/ lib, edit, history, document
+    │   │   └── src/ lib, edit, growth, history, document
     │   └── command/                 # excel-command
     │       └── src/ lib, command, context, effect, error,
     │                services, registry, parse, path, testing
@@ -402,7 +579,7 @@ excel/
     │   ├── csv/                     # excel-csv
     │   │   └── src/ lib
     │   └── xlsx/                    # excel-xlsx
-    │       ├── src/ lib, store, error
+    │       ├── src/ lib, store, error, tables, xml
     │       ├── src/read/ mod, cells, formulas, sheets
     │       ├── src/write/ mod, cells, formulas, sheets
     │       ├── src/inspect/ mod, styles, charts
@@ -417,12 +594,15 @@ excel/
     │   ├── navigate/                # excel-cmd-navigate: goto
     │   ├── structure/               # excel-cmd-structure: insert, delete
     │   ├── sheet/                   # excel-cmd-sheet: sheet
+    │   ├── table/                   # excel-cmd-table: table
+    │   ├── app/                     # excel-cmd-app: app (input cells, install)
     │   └── view/                    # excel-cmd-view: fullscreen, theme
     │
     ├── ui/
     │   ├── grid/                    # excel-ui-grid
-    │   │   ├── src/ lib, state, layout, paint, headers, pointer, selection,
-    │   │   │        fill, editor, clipboard, function_hint, autofit
+    │   │   ├── src/ lib, state, layout, paint, palette, headers, pointer,
+    │   │   │        selection, fill, filter_popup, editor, edge, clipboard,
+    │   │   │        function_hint, autofit
     │   │   └── tests/ interaction
     │   ├── command-line/            # excel-ui-command-line
     │   │   └── src/ lib, state, input, completion_popup, message
@@ -440,7 +620,7 @@ excel/
         │   ├── src/ main, args, runner
         │   └── tests/ cli
         └── app/                     # excel-app, binary: kxcel
-            └── src/ main, app, keymap, dialogs, actions, series, theme, settings,
+            └── src/ main, args, app, keymap, dialogs, actions, series, theme, settings,
                      fonts, icon, help
 ```
 
@@ -624,6 +804,14 @@ built. The hand checks from stage 2 are listed in section 8.
 | Functions (1.12.0 to 1.15.0) | Covered by automated tests, including every help example with a result | Compare a few results with Excel |
 | Completion limits, Tab closing parentheses, help tabs (1.15.2 to 1.17.0) | Covered by automated tests | Check by hand while typing formulas |
 | Full screen and themes (1.18.0, 1.19.0) | Covered by automated tests, which cannot see the real window | Check `F11`, `theme light`, and that the theme returns after a restart |
+| `Ctrl+Arrow` (1.21.0) | Covered by automated tests | Check by hand: jumps in a real file, and the status bar after `Ctrl+Shift+Arrow` |
+| Tables (1.22.0, 1.23.0) | Covered by automated tests, which cannot see the drawing | Check by hand: `Ctrl+T`, the header, outline, and sort arrow in both themes, typing below a table |
+| Registered apps (1.29.0) | Files and their contents covered by automated tests in a temporary folder | Check by hand: the app and its icon in the app list and dock, that it opens in app mode, and `nosave` |
+| App window (1.28.0) | Covered by automated tests | Check by hand: `kxcel --app` on a form, Korean input in an input cell, the title, and `--nosave` |
+| Input cells (1.27.0) | Round trips covered by automated tests | Check by hand: the tint in both themes, and the cells unlocked in Excel after protecting the sheet |
+| Tables in files (1.26.0) | Round trips covered by automated tests with `calamine` | Open a saved table with filters in Excel, and a filtered Excel table here |
+| Header popup (1.25.0) | Covered by automated tests, which cannot click its buttons | Check by hand: each button, the search box, Korean in the condition box, and `Esc` |
+| Filters and hidden rows (1.24.0) | Covered by automated tests, including scrolling a filtered sheet of 300,000 rows | Check by hand: scrolling, dragging a selection, and the fill handle across hidden rows |
 | Large recalculation | Incremental since 1.10.0, and checked against full recalculation by a randomized test. Opening a file and whole-sheet commands still compute everything | Done |
 | Column widths | Written to the file but not read back, so they reset on reopening | Add when real use needs it |
 | Multi-line cells in Excel | Line breaks are saved, but Excel shows them on one line unless the cell has wrapping turned on, which this app does not write | Add a wrap format if files are shared with Excel |

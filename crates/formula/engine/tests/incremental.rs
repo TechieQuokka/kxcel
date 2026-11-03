@@ -139,3 +139,42 @@ fn another_workbook_or_whole_sheet_changes_are_calculated_from_scratch() {
     engine.update(&mut second, &edit);
     assert_eq!(second.active().value("B1".parse().unwrap()).as_number(), Some(15.0));
 }
+
+#[test]
+fn metadata_edits_skip_recalculation_and_batches_stay_incremental() {
+    let engine = FormulaEngine::default();
+    let mut doc = Document::default();
+    let sheet = doc.workbook.active_mut();
+    sheet.set("A1".parse().unwrap(), Cell::parse_input("2"));
+    sheet.set("B1".parse().unwrap(), Cell::parse_input("=A1*3"));
+    engine.recalculate(&mut doc.workbook);
+
+    // A stale value shows that a metadata edit did not recalculate everything.
+    doc.workbook.active_mut().get_mut("B1".parse().unwrap()).unwrap().value = excel_model::CellValue::Number(-1.0);
+    let before = doc.workbook.active().meta().clone();
+    let mut after = before.clone();
+    after.tables.push(excel_model::Table::new("T", "A1:B2".parse().unwrap()));
+    let meta = Edit::SetMeta { sheet: 0, before: before.clone(), after: after.clone() };
+    doc.apply(meta);
+    engine.update(&mut doc.workbook, doc.history.last_undo().unwrap());
+    assert_eq!(doc.workbook.active().value("B1".parse().unwrap()).as_number(), Some(-1.0));
+    assert_eq!(doc.workbook.active().tables().len(), 1);
+
+    let change = CellChange {
+        sheet: 0,
+        addr: "A1".parse().unwrap(),
+        before: doc.workbook.active().get("A1".parse().unwrap()).cloned(),
+        after: Cell::parse_input("4"),
+    };
+    let batch =
+        Edit::Batch(vec![Edit::SetCells(vec![change]), Edit::SetMeta { sheet: 0, before: after, after: before }]);
+    doc.apply(batch);
+    engine.update(&mut doc.workbook, doc.history.last_undo().unwrap());
+    assert_eq!(doc.workbook.active().value("B1".parse().unwrap()).as_number(), Some(12.0));
+    assert!(doc.workbook.active().tables().is_empty());
+
+    doc.undo();
+    engine.update(&mut doc.workbook, doc.history.last_redo().unwrap());
+    assert_eq!(doc.workbook.active().value("B1".parse().unwrap()).as_number(), Some(6.0));
+    assert_eq!(doc.workbook.active().tables().len(), 1);
+}

@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*/*"]
 
 [workspace.package]
-version = "1.20.0"
+version = "1.29.0"
 edition = "2024"
 license = "PolyForm-Noncommercial-1.0.0"
 
@@ -25,6 +25,8 @@ excel-cmd-navigate = { path = "crates/commands/navigate" }
 excel-cmd-structure = { path = "crates/commands/structure" }
 excel-cmd-sheet = { path = "crates/commands/sheet" }
 excel-cmd-view = { path = "crates/commands/view" }
+excel-cmd-table = { path = "crates/commands/table" }
+excel-cmd-app = { path = "crates/commands/app" }
 excel-ui-help-panel = { path = "crates/ui/help-panel" }
 excel-ui-grid = { path = "crates/ui/grid" }
 excel-ui-command-line = { path = "crates/ui/command-line" }
@@ -34,7 +36,7 @@ excel-cli = { path = "crates/bin/cli" }
 excel-app = { path = "crates/bin/app" }
 
 calamine = "0.38.0"
-jiff = "0.2.38"
+jiff = "0.2.39"
 csv = "1.4.0"
 eframe = "0.37.0"
 egui = "0.37.0"

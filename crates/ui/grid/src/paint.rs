@@ -1,9 +1,9 @@
 use egui::{Align2, Color32, FontId, Rect, Stroke, StrokeKind, Ui, pos2, vec2};
 use excel_model::{Cell, CellRange, CellValue, MAX_COLS, MAX_ROWS, Sheet};
 
-use crate::GridState;
-use crate::layout::{COL_HEADER_HEIGHT, LINE_PADDING, Layout, SCROLLBAR_SIZE};
+use crate::layout::{LINE_PADDING, Layout, SCROLLBAR_SIZE};
 use crate::state::Drag;
+use crate::{GridPalette, GridState};
 
 pub(crate) const CELL_PADDING: f32 = 6.0;
 pub(crate) const CELL_FONT_SIZE: f32 = 13.0;
@@ -21,17 +21,35 @@ pub(crate) fn cells(ui: &Ui, state: &GridState, sheet: &Sheet, layout: &Layout) 
     let accent = visuals.selection.stroke.color;
     let selection = state.selection();
 
+    let palette = GridPalette::current(ui.ctx(), visuals);
+
     painter.rect_filled(body, 0.0, visuals.extreme_bg_color);
 
     for span in &layout.cols {
         for row_span in &layout.rows {
             let addr = excel_model::CellAddr::new(row_span.row, span.col);
             let rect = Rect::from_min_size(pos2(span.x, row_span.y), vec2(span.width, row_span.height));
+            if sheet.is_input(addr) {
+                painter.rect_filled(rect, 0.0, palette.input_tint);
+            }
+            let table = sheet.table_at(addr).filter(|table| table.is_header(addr));
+            let header = table.is_some();
+            if header {
+                painter.rect_filled(rect, 0.0, palette.table_header);
+            }
             if selection.contains(addr) {
                 painter.rect_filled(rect, 0.0, visuals.selection.bg_fill.gamma_multiply(0.45));
             }
             if let Some(cell) = sheet.get(addr) {
-                paint_cell_text(ui, cell, rect, &font);
+                paint_cell_text(ui, cell, rect, &font, header);
+            }
+            if let Some(table) = table.filter(|_| !state.app_mode) {
+                let filtered = table.filters.iter().any(|filter| filter.column == addr.col);
+                let color = if filtered { accent } else { palette.table_line };
+                header_button(&painter, rect, filtered, color);
+                if let Some((_, descending)) = table.sorted.filter(|(col, _)| *col == addr.col) {
+                    sort_mark(&painter, rect, descending, color);
+                }
             }
         }
     }
@@ -43,6 +61,10 @@ pub(crate) fn cells(ui: &Ui, state: &GridState, sheet: &Sheet, layout: &Layout) 
     for span in &layout.cols {
         let x = (span.x + span.width).round() - 0.5;
         painter.vline(x, body.y_range(), line);
+    }
+
+    for table in sheet.tables() {
+        table_outline(ui, layout, table.range, palette.table_line);
     }
 
     match state.drag {
@@ -62,13 +84,38 @@ pub(crate) fn cells(ui: &Ui, state: &GridState, sheet: &Sheet, layout: &Layout) 
         painter.rect_stroke(rect, 0.0, Stroke::new(2.0, accent), StrokeKind::Inside);
     }
     if !state.is_editing()
+        && !state.app_mode
         && let Some(rect) = fill_handle_rect(layout, selection)
     {
         painter.rect_filled(rect, 0.0, accent);
     }
 }
 
-fn paint_cell_text(ui: &Ui, cell: &Cell, rect: Rect, font: &FontId) {
+/// Width of the `▼` button at the right of a table header, which opens the
+/// sort and filter popup.
+pub(crate) const HEADER_MARK_WIDTH: f32 = 16.0;
+/// Width kept free for the sort arrow, left of the button.
+const SORT_MARK_WIDTH: f32 = 10.0;
+
+/// The `▼` button. Filled while its column has a filter.
+fn header_button(painter: &egui::Painter, rect: Rect, filtered: bool, color: Color32) {
+    let center = pos2(rect.right() - HEADER_MARK_WIDTH / 2.0, rect.center().y);
+    let points = vec![center + vec2(-4.0, -2.5), center + vec2(4.0, -2.5), center + vec2(0.0, 3.0)];
+    let fill = if filtered { color } else { Color32::TRANSPARENT };
+    painter.add(egui::Shape::convex_polygon(points, fill, Stroke::new(1.2, color)));
+}
+
+/// An arrow left of the header button: up for smallest first, down for largest first.
+fn sort_mark(painter: &egui::Painter, rect: Rect, descending: bool, color: Color32) {
+    let x = rect.right() - HEADER_MARK_WIDTH - SORT_MARK_WIDTH / 2.0;
+    let (top, bottom) = (rect.center().y - 5.0, rect.center().y + 5.0);
+    let (from, to) = if descending { (top, bottom) } else { (bottom, top) };
+    painter.arrow(pos2(x, from), vec2(0.0, to - from), Stroke::new(1.5, color));
+}
+
+/// Draws a cell's text. `bold` draws it twice, a hair apart, since the cell
+/// font has no bold face.
+fn paint_cell_text(ui: &Ui, cell: &Cell, rect: Rect, font: &FontId, bold: bool) {
     let mut text = cell.display();
     if text.is_empty() {
         if !cell.uncalculated {
@@ -92,13 +139,13 @@ fn paint_cell_text(ui: &Ui, cell: &Cell, rect: Rect, font: &FontId) {
     } else {
         (pos2(rect.left() + CELL_PADDING, rect.center().y), Align2::LEFT_CENTER)
     };
-    ui.painter().with_clip_rect(rect.shrink(1.0).intersect(ui.clip_rect())).text(
-        pos,
-        anchor,
-        text,
-        font.clone(),
-        color,
-    );
+    // A header leaves room for its sort arrow and button.
+    let clip = if bold { rect.with_max_x(rect.right() - HEADER_MARK_WIDTH - SORT_MARK_WIDTH) } else { rect };
+    let painter = ui.painter().with_clip_rect(clip.shrink(1.0).intersect(ui.clip_rect()));
+    if bold {
+        painter.text(pos + vec2(0.6, 0.0), anchor, &text, font.clone(), color);
+    }
+    painter.text(pos, anchor, text, font.clone(), color);
 }
 
 /// Greys out cells a shrinking fill is about to clear.
@@ -118,6 +165,40 @@ fn outline(ui: &Ui, layout: &Layout, range: CellRange, color: Color32) {
     painter.rect_stroke(a.union(b), 0.0, Stroke::new(1.5, color), StrokeKind::Inside);
 }
 
+/// Outlines a table. Edges past the view stay out of sight rather than being
+/// drawn along its border, so a table cut off by scrolling looks cut off.
+fn table_outline(ui: &Ui, layout: &Layout, range: CellRange, color: Color32) {
+    let (Some(first), Some(last), Some(last_row)) = (layout.cols.first(), layout.cols.last(), layout.rows.last())
+    else {
+        return;
+    };
+    let shown = CellRange {
+        start: excel_model::CellAddr::new(layout.top_row, first.col),
+        end: excel_model::CellAddr::new(last_row.row, last.col),
+    };
+    let (Some(a), Some(b)) = (visible_corner(layout, range, true), visible_corner(layout, range, false)) else {
+        return;
+    };
+    if !shown.overlaps(range) {
+        return;
+    }
+    let body = layout.body();
+    let mut rect = a.union(b);
+    if range.start.row < shown.start.row {
+        rect.min.y = body.top() - 4.0;
+    }
+    if range.start.col < shown.start.col {
+        rect.min.x = body.left() - 4.0;
+    }
+    if range.end.row > shown.end.row {
+        rect.max.y = body.bottom() + 4.0;
+    }
+    if range.end.col > shown.end.col {
+        rect.max.x = body.right() + 4.0;
+    }
+    ui.painter().with_clip_rect(body).rect_stroke(rect, 0.0, Stroke::new(1.5, color), StrokeKind::Inside);
+}
+
 /// The rectangle of a range's top-left or bottom-right cell, clamped into view.
 fn visible_corner(layout: &Layout, range: CellRange, top_left: bool) -> Option<Rect> {
     let first = layout.cols.first()?;
@@ -125,7 +206,13 @@ fn visible_corner(layout: &Layout, range: CellRange, top_left: bool) -> Option<R
     let last_row = layout.rows.last()?.row;
     let row = if top_left { range.start.row } else { range.end.row }.clamp(layout.top_row, last_row);
     let col = if top_left { range.start.col } else { range.end.col }.clamp(first.col, last.col);
-    layout.cell_rect(excel_model::CellAddr::new(row, col))
+    // A hidden corner row stands in for the nearest shown row inside the range.
+    let span = match layout.row_span(row) {
+        Some(span) => span,
+        None if top_left => layout.row_span_from(row)?,
+        None => layout.rows[..layout.rows.partition_point(|span| span.row < row)].last().copied()?,
+    };
+    layout.cell_rect(excel_model::CellAddr::new(span.row, col))
 }
 
 /// Where the fill handle is, if the selection's corner is in view.
@@ -135,9 +222,9 @@ pub(crate) fn fill_handle_rect(layout: &Layout, selection: CellRange) -> Option<
 }
 
 /// The scrollbar tracks of the whole grid area.
-pub(crate) fn track_rects(rect: Rect) -> (Rect, Rect) {
+pub(crate) fn track_rects(rect: Rect, header_height: f32) -> (Rect, Rect) {
     let vertical = Rect::from_min_max(
-        pos2(rect.right() - SCROLLBAR_SIZE, rect.top() + COL_HEADER_HEIGHT),
+        pos2(rect.right() - SCROLLBAR_SIZE, rect.top() + header_height),
         pos2(rect.right(), rect.bottom() - SCROLLBAR_SIZE),
     );
     let horizontal = Rect::from_min_max(
@@ -168,7 +255,7 @@ pub(crate) fn scrollbars(ui: &Ui, state: &GridState, sheet: &Sheet, rect: Rect) 
     let visuals = ui.visuals();
     let painter = ui.painter();
     let thumb_color = visuals.widgets.inactive.bg_fill;
-    let (vertical, horizontal) = track_rects(rect);
+    let (vertical, horizontal) = track_rects(rect, state.header_size().y);
     let (rows, cols) = scroll_extent(state, sheet);
     painter.rect_filled(vertical, 0.0, visuals.faint_bg_color);
     painter.rect_filled(horizontal, 0.0, visuals.faint_bg_color);

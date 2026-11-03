@@ -37,9 +37,12 @@ impl Calculator for FormulaEngine {
     }
 
     fn update(&self, workbook: &mut Workbook, edit: &Edit) {
-        let Edit::SetCells(changes) = edit else {
+        let Some(changes) = edit.cell_changes() else {
             return self.recalculate(workbook);
         };
+        if changes.is_empty() {
+            return;
+        }
         let mut slot = self.graph.borrow_mut();
         let graph = match slot.take() {
             Some(graph) if graph.fits(workbook) => graph,

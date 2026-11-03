@@ -641,3 +641,153 @@ fn completion_comes_before_closing_parentheses() {
     h.frame(Vec::new());
     assert_eq!(h.state.edit_text(), Some("=SUM(MAX(1)"));
 }
+
+#[test]
+fn ctrl_arrows_jump_to_the_data_edge() {
+    let mut h = Harness::new();
+    for row in 1..=4 {
+        h.set_number(&format!("A{row}"), 1.0);
+    }
+    h.set_number("A9", 2.0);
+    h.key(Key::ArrowDown, Modifiers::COMMAND);
+    assert_eq!(h.state.cursor, addr("A4"));
+    h.key(Key::ArrowDown, Modifiers::COMMAND);
+    assert_eq!(h.state.cursor, addr("A9"));
+    h.key(Key::ArrowDown, Modifiers::COMMAND);
+    assert_eq!(h.state.cursor, addr("A1048576"));
+    assert!(h.state.top_row > 1_000_000, "the view follows the cursor");
+    h.key(Key::ArrowUp, Modifiers::COMMAND);
+    assert_eq!(h.state.cursor, addr("A9"));
+    h.key(Key::ArrowRight, Modifiers::COMMAND);
+    assert_eq!(h.state.cursor, addr("XFD9"));
+    assert_eq!(h.state.selection().to_string(), "XFD9", "without Shift the selection collapses");
+}
+
+#[test]
+fn ctrl_shift_arrows_extend_the_selection() {
+    let mut h = Harness::new();
+    for row in 1..=5 {
+        h.set_number(&format!("B{row}"), 1.0);
+    }
+    h.key(Key::ArrowRight, Modifiers::NONE);
+    h.key(Key::ArrowDown, Modifiers::COMMAND | Modifiers::SHIFT);
+    assert_eq!(h.state.selection().to_string(), "B1:B5");
+}
+
+#[test]
+fn ctrl_arrows_leave_an_edit_alone() {
+    let mut h = Harness::new();
+    h.set_number("A5", 1.0);
+    h.key(Key::F2, Modifiers::NONE);
+    h.typed("abc");
+    h.key(Key::ArrowDown, Modifiers::COMMAND);
+    assert!(h.state.is_editing());
+    assert_eq!(h.state.cursor, addr("A1"));
+}
+
+fn table_sheet(h: &mut Harness) {
+    use excel_model::{SheetMeta, Table};
+    h.sheet.set(addr("A1"), Cell::parse_input("이름"));
+    h.sheet.set(addr("A2"), Cell::parse_input("사과"));
+    h.sheet.set(addr("A3"), Cell::parse_input("배"));
+    h.sheet.set_meta(SheetMeta { tables: vec![Table::new("T", "A1:A3".parse().unwrap())], ..Default::default() });
+}
+
+/// The `▼` at the right of a header cell.
+fn header_button(row: u32, col: u32) -> Pos2 {
+    cell_center(row, col) + vec2(40.0, 0.0)
+}
+
+#[test]
+fn clicking_a_header_button_opens_its_popup_and_esc_closes_it() {
+    let mut h = Harness::new();
+    table_sheet(&mut h);
+    h.frame(Vec::new());
+    h.press_at(header_button(0, 0));
+    h.release_at(header_button(0, 0));
+    let popup = h.state.filter_popup().expect("open");
+    assert_eq!(popup.name, "이름");
+    assert_eq!(popup.values.len(), 2);
+    assert_eq!(h.state.cursor, addr("A1"), "the table commands act at the cursor");
+    h.typed("x");
+    assert!(!h.state.is_editing(), "typing goes to the popup, not the cell");
+    h.key(Key::Escape, Modifiers::NONE);
+    assert!(h.state.filter_popup().is_none());
+}
+
+#[test]
+fn clicking_outside_closes_the_popup_and_the_header_text_does_not_open_it() {
+    let mut h = Harness::new();
+    table_sheet(&mut h);
+    h.frame(Vec::new());
+    h.press_at(cell_center(0, 0));
+    h.release_at(cell_center(0, 0));
+    assert!(h.state.filter_popup().is_none(), "only the button opens it");
+    h.press_at(header_button(0, 0));
+    h.release_at(header_button(0, 0));
+    assert!(h.state.filter_popup().is_some());
+    h.press_at(cell_center(10, 5));
+    h.release_at(cell_center(10, 5));
+    assert!(h.state.filter_popup().is_none());
+    assert!(h.actions.iter().all(|action| !matches!(action, GridAction::RunCommand(_))), "closing changes nothing");
+}
+
+fn app_mode_harness() -> Harness {
+    let mut h = Harness::new();
+    h.state.app_mode = true;
+    let mut meta = h.sheet.meta().clone();
+    meta.input_cells.add("B2:C2".parse().unwrap());
+    meta.input_cells.add("B4".parse().unwrap());
+    h.sheet.set_meta(meta);
+    h.frame(Vec::new());
+    h
+}
+
+#[test]
+fn app_mode_refuses_edits_outside_input_cells() {
+    let mut h = app_mode_harness();
+    h.typed("5");
+    assert!(!h.state.is_editing());
+    assert!(h.actions.iter().any(|a| matches!(a, GridAction::Notice(text) if text.contains("input cells"))));
+    h.key(Key::F2, Modifiers::NONE);
+    assert!(!h.state.is_editing(), "F2 is refused too");
+    h.state.go_to(addr("B2"));
+    h.frame(Vec::new());
+    h.typed("5");
+    assert!(h.state.is_editing());
+    h.key(Key::Enter, Modifiers::NONE);
+    assert!(h.actions.contains(&commit("B2", "5")));
+}
+
+#[test]
+fn app_mode_tab_and_enter_go_through_input_cells_in_order() {
+    let mut h = app_mode_harness();
+    h.key(Key::Tab, Modifiers::NONE);
+    assert_eq!(h.state.cursor, addr("B2"));
+    h.key(Key::Tab, Modifiers::NONE);
+    assert_eq!(h.state.cursor, addr("C2"));
+    h.key(Key::Enter, Modifiers::NONE);
+    assert_eq!(h.state.cursor, addr("B4"));
+    h.key(Key::Tab, Modifiers::NONE);
+    assert_eq!(h.state.cursor, addr("B2"), "wraps around");
+    h.key(Key::Tab, Modifiers::SHIFT);
+    assert_eq!(h.state.cursor, addr("B4"));
+    h.typed("7");
+    h.key(Key::Tab, Modifiers::NONE);
+    assert!(h.actions.contains(&commit("B4", "7")));
+    assert_eq!(h.state.cursor, addr("B2"), "finishing an edit with Tab goes on to the next input");
+    h.key(Key::ArrowDown, Modifiers::NONE);
+    assert_eq!(h.state.cursor, addr("B3"), "arrows still reach any cell");
+}
+
+#[test]
+fn app_mode_has_no_headers() {
+    let mut h = app_mode_harness();
+    // Without headers, the first cell starts at the top left corner.
+    h.press_at(pos2(48.0, 12.0));
+    h.release_at(pos2(48.0, 12.0));
+    assert_eq!(h.state.cursor, addr("A1"));
+    h.press_at(pos2(96.0 + 48.0, 24.0 + 12.0));
+    h.release_at(pos2(96.0 + 48.0, 24.0 + 12.0));
+    assert_eq!(h.state.cursor, addr("B2"));
+}

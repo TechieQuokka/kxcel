@@ -1,8 +1,8 @@
 use excel_model::{CellError, CellValue, Doc};
 
 use super::{cells, sum_and_count};
-use crate::criteria::Criterion;
 use crate::{Arg, Function, scalar};
+use excel_model::Criterion;
 
 pub(crate) struct SumIf;
 

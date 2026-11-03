@@ -23,7 +23,7 @@ pub(crate) fn handle(
     actions: &mut Vec<GridAction>,
 ) {
     if response.hovered() {
-        wheel(ui, state);
+        wheel(ui, state, sheet);
     }
 
     let hover = ui.input(|i| i.pointer.hover_pos());
@@ -42,7 +42,7 @@ pub(crate) fn handle(
         && whole.contains(pos)
         && response.contains_pointer()
     {
-        press(ui, state, layout, whole, pos, focused, actions);
+        press(ui, state, sheet, layout, whole, pos, focused, actions);
     }
 
     // Double-clicking a column edge in the header fits the column to its contents.
@@ -77,7 +77,7 @@ pub(crate) fn handle(
     }
 }
 
-fn wheel(ui: &Ui, state: &mut GridState) {
+fn wheel(ui: &Ui, state: &mut GridState, sheet: &Sheet) {
     let delta = ui.input(|i| i.smooth_scroll_delta());
     if delta == egui::Vec2::ZERO {
         return;
@@ -87,13 +87,14 @@ fn wheel(ui: &Ui, state: &mut GridState) {
     let cols = (state.scroll_remainder.x / COL_SCROLL_STEP).trunc();
     state.scroll_remainder.y -= rows * ROW_HEIGHT;
     state.scroll_remainder.x -= cols * COL_SCROLL_STEP;
-    state.scroll_by(-(rows as i64), -(cols as i64));
+    state.scroll_by(-(rows as i64), -(cols as i64), sheet.hidden_rows());
 }
 
 #[allow(clippy::too_many_arguments)]
 fn press(
     ui: &Ui,
     state: &mut GridState,
+    sheet: &Sheet,
     layout: &Layout,
     whole: Rect,
     pos: Pos2,
@@ -104,7 +105,7 @@ fn press(
         actions.push(GridAction::FocusGrid);
     }
 
-    let (vertical, horizontal) = track_rects(whole);
+    let (vertical, horizontal) = track_rects(whole, state.header_size().y);
     if vertical.contains(pos) {
         state.drag = Some(Drag::ScrollVertical);
         return;
@@ -126,6 +127,17 @@ fn press(
     let Some(addr) = layout.cell_at(pos) else {
         return;
     };
+
+    if !state.is_editing()
+        && !state.app_mode
+        && on_header_mark(sheet, layout, addr, pos)
+        && let Some(popup) = crate::FilterPopup::open(sheet, addr)
+    {
+        state.cursor = addr;
+        state.anchor = addr;
+        state.popup = Some(popup);
+        return;
+    }
 
     if state.is_editing() {
         if addr == state.cursor && !accepts_reference(&state.text) {
@@ -162,12 +174,12 @@ fn continue_drag(
 ) {
     match drag {
         Drag::Select => {
-            if let Some(addr) = drag_cell(state, layout, pos) {
+            if let Some(addr) = drag_cell(state, sheet, layout, pos) {
                 state.cursor = addr;
             }
         }
         Drag::Fill { source, .. } => {
-            if let Some(addr) = drag_cell(state, layout, pos) {
+            if let Some(addr) = drag_cell(state, sheet, layout, pos) {
                 state.drag = Some(Drag::Fill { source, target: fill_target(source, addr) });
             }
         }
@@ -176,7 +188,7 @@ fn continue_drag(
             actions.push(GridAction::ResizeColumn { col, width });
         }
         Drag::FormulaRange { start, insert_at } => {
-            if let Some(addr) = drag_cell(state, layout, pos) {
+            if let Some(addr) = drag_cell(state, sheet, layout, pos) {
                 state.text.truncate(insert_at);
                 state.text.push_str(&CellRange::new(start, addr).to_string());
                 state.cursor_to_end = true;
@@ -184,13 +196,13 @@ fn continue_drag(
             }
         }
         Drag::ScrollVertical => {
-            let (track, _) = track_rects(whole);
+            let (track, _) = track_rects(whole, state.header_size().y);
             let (rows, _) = scroll_extent(state, sheet);
             let ratio = ((pos.y - track.top()) / track.height()).clamp(0.0, 1.0);
             state.top_row = (ratio * rows.saturating_sub(state.visible_rows) as f32) as u32;
         }
         Drag::ScrollHorizontal => {
-            let (_, track) = track_rects(whole);
+            let (_, track) = track_rects(whole, state.header_size().y);
             let (_, cols) = scroll_extent(state, sheet);
             let ratio = ((pos.x - track.left()) / track.width()).clamp(0.0, 1.0);
             state.left_col = (ratio * cols.saturating_sub(state.visible_cols) as f32) as u32;
@@ -200,7 +212,7 @@ fn continue_drag(
 
 /// The cell under the pointer during a drag. Near an edge, the view scrolls by
 /// one step so that a selection can grow past what is visible.
-fn drag_cell(state: &mut GridState, layout: &Layout, pos: Pos2) -> Option<CellAddr> {
+fn drag_cell(state: &mut GridState, sheet: &Sheet, layout: &Layout, pos: Pos2) -> Option<CellAddr> {
     let body = layout.body();
     let rows = if pos.y >= body.bottom() {
         1
@@ -217,7 +229,7 @@ fn drag_cell(state: &mut GridState, layout: &Layout, pos: Pos2) -> Option<CellAd
         0
     };
     if rows != 0 || cols != 0 {
-        state.scroll_by(rows, cols);
+        state.scroll_by(rows, cols, sheet.hidden_rows());
     }
     layout.nearest_cell(pos)
 }
@@ -239,7 +251,14 @@ fn finish_drag(ui: &Ui, state: &mut GridState, actions: &mut Vec<GridAction>) {
     state.drag = None;
 }
 
+/// Whether `pos` is on the `▼` at the right of a table header cell.
+fn on_header_mark(sheet: &Sheet, layout: &Layout, addr: CellAddr, pos: Pos2) -> bool {
+    let header = sheet.table_at(addr).is_some_and(|table| table.is_header(addr));
+    header && layout.cell_rect(addr).is_some_and(|rect| pos.x >= rect.right() - crate::paint::HEADER_MARK_WIDTH)
+}
+
 fn hovered_fill_handle(state: &GridState, layout: &Layout, pos: Pos2) -> bool {
     !state.is_editing()
+        && !state.app_mode
         && fill_handle_rect(layout, state.selection()).is_some_and(|rect| rect.expand(2.0).contains(pos))
 }

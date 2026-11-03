@@ -43,6 +43,12 @@ impl WorkbookStore for CsvStore {
         if workbook.sheets().len() > 1 {
             losses.push("other sheets".to_owned());
         }
+        if !workbook.active().tables().is_empty() {
+            losses.push("tables and their filters (hidden rows are still written)".to_owned());
+        }
+        if !workbook.active().meta().input_cells.is_empty() {
+            losses.push("input cells".to_owned());
+        }
         losses
     }
 }

@@ -7,4 +7,5 @@ license.workspace = true
 
 [dependencies]
 excel-model.workspace = true
+excel-command.workspace = true
 egui.workspace = true

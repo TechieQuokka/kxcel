@@ -36,6 +36,8 @@ pub fn inspect(path: &Path) -> Result<Vec<String>, StoreError> {
     };
     warnings.extend(styles::warnings_from_sheets(&sheets, &kept));
     if names.iter().any(|name| name == "xl/workbook.xml") {
+        let meta = crate::tables::read_meta(&mut archive).map_err(|e| file_error("read", path, e))?;
+        warnings.extend(meta.warnings);
         let workbook = read_part(&mut archive, "xl/workbook.xml").map_err(|e| file_error("read", path, e))?;
         if workbook.contains("<definedName") {
             warnings.push("defined names".to_owned());

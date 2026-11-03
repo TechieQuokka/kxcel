@@ -21,6 +21,8 @@ excel-cmd-navigate.workspace = true
 excel-cmd-structure.workspace = true
 excel-cmd-sheet.workspace = true
 excel-cmd-view.workspace = true
+excel-cmd-table.workspace = true
+excel-cmd-app.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

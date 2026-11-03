@@ -6,7 +6,6 @@ pub(super) fn warnings_from_parts(names: &[String]) -> Vec<String> {
         ("xl/charts/", "charts"),
         ("xl/media/", "images"),
         ("xl/pivotTables/", "pivot tables"),
-        ("xl/tables/", "tables"),
         ("xl/comments", "comments"),
         ("xl/vbaProject", "macros"),
     ] {

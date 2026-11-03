@@ -1,0 +1,14 @@
+[package]
+name = "excel-cmd-app"
+description = "App command: input cells and registered apps"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+excel-model.workspace = true
+excel-edit.workspace = true
+excel-command.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

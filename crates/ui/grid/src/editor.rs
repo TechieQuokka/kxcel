@@ -16,6 +16,7 @@ use egui::text::{CCursor, CCursorRange};
 use egui::{Event, Frame, Id, Key, KeyboardShortcut, Modifiers, Rect, TextEdit, Ui, UiBuilder, vec2};
 use excel_model::Sheet;
 
+use crate::edge::{Direction, data_edge};
 use crate::layout::{LINE_PADDING, Layout};
 use crate::paint::CELL_PADDING;
 use crate::{GridAction, GridState};
@@ -62,6 +63,9 @@ pub(crate) fn before_text_input(ui: &Ui, state: &mut GridState, actions: &mut Ve
         }
         if i.consume_key(Modifiers::COMMAND, Key::Z) {
             actions.push(GridAction::Undo);
+        }
+        if i.consume_key(Modifiers::COMMAND, Key::T) {
+            actions.push(GridAction::RunCommand("table create".into()));
         }
         let selection = state.selection();
         i.events.retain(|event| match event {
@@ -155,13 +159,13 @@ pub(crate) fn show(ui: &mut Ui, state: &mut GridState, layout: &Layout, line_hei
 /// this runs after the text box.
 pub(crate) fn after_text_input(ui: &Ui, state: &mut GridState, sheet: &Sheet, actions: &mut Vec<GridAction>) {
     if state.editing {
-        keys_while_editing(ui, state, actions);
+        keys_while_editing(ui, state, sheet, actions);
     } else {
         keys_while_ready(ui, state, sheet, actions);
     }
 }
 
-fn keys_while_editing(ui: &Ui, state: &mut GridState, actions: &mut Vec<GridAction>) {
+fn keys_while_editing(ui: &Ui, state: &mut GridState, sheet: &Sheet, actions: &mut Vec<GridAction>) {
     let pending_tab = state.pending_tab.take();
     let (shift, enter, escape, arrow) = ui.input(|i| {
         let arrow = if i.key_pressed(Key::ArrowUp) {
@@ -200,49 +204,59 @@ fn keys_while_editing(ui: &Ui, state: &mut GridState, actions: &mut Vec<GridActi
             return;
         }
     }
-    let step = if enter {
-        Some((if shift { -1 } else { 1 }, 0))
+    // Enter and Tab may go to the next input cell in app mode. Arrows always
+    // move one cell.
+    let (step, by_key) = if enter {
+        (Some((if shift { -1 } else { 1 }, 0)), true)
     } else if let Some(back) = pending_tab {
-        Some((0, if back { -1 } else { 1 }))
+        (Some((0, if back { -1 } else { 1 })), true)
     } else if state.arrows_commit && !state.text.contains('\n') {
-        arrow
+        (arrow, false)
     } else {
-        None
+        (None, false)
     };
     if let Some((rows, cols)) = step {
         let addr = state.cursor;
         let text = state.take_text();
         actions.push(GridAction::Commit { addr, text });
-        state.move_cursor(rows, cols, false);
+        if by_key {
+            state.step(rows, cols, sheet);
+        } else {
+            state.move_cursor(rows, cols, false, sheet.hidden_rows());
+        }
     }
 }
 
 fn keys_while_ready(ui: &Ui, state: &mut GridState, sheet: &Sheet, actions: &mut Vec<GridAction>) {
     let page = i64::from(state.visible_rows.saturating_sub(2).max(1));
     if let Some(back) = state.pending_tab.take() {
-        state.move_cursor(0, if back { -1 } else { 1 }, false);
+        state.step(0, if back { -1 } else { 1 }, sheet);
     }
     ui.input(|i| {
         let shift = i.modifiers.shift;
         let command = i.modifiers.command;
-        for (key, rows, cols) in [
-            (Key::ArrowUp, -1, 0),
-            (Key::ArrowDown, 1, 0),
-            (Key::ArrowLeft, 0, -1),
-            (Key::ArrowRight, 0, 1),
-            (Key::PageUp, -page, 0),
-            (Key::PageDown, page, 0),
+        for (key, rows, cols, direction) in [
+            (Key::ArrowUp, -1, 0, Some(Direction::Up)),
+            (Key::ArrowDown, 1, 0, Some(Direction::Down)),
+            (Key::ArrowLeft, 0, -1, Some(Direction::Left)),
+            (Key::ArrowRight, 0, 1, Some(Direction::Right)),
+            (Key::PageUp, -page, 0, None),
+            (Key::PageDown, page, 0, None),
         ] {
-            if i.key_pressed(key) {
-                state.move_cursor(rows, cols, shift);
+            if !i.key_pressed(key) {
+                continue;
+            }
+            match direction.filter(|_| command) {
+                Some(direction) => state.jump_to(data_edge(sheet, state.cursor, direction), shift),
+                None => state.move_cursor(rows, cols, shift, sheet.hidden_rows()),
             }
         }
         if i.key_pressed(Key::Enter) {
-            state.move_cursor(if shift { -1 } else { 1 }, 0, false);
+            state.step(if shift { -1 } else { 1 }, 0, sheet);
         }
         if i.key_pressed(Key::Home) {
             let rows = if command { -i64::from(state.cursor.row) } else { 0 };
-            state.move_cursor(rows, -i64::from(state.cursor.col), shift);
+            state.move_cursor(rows, -i64::from(state.cursor.col), shift, sheet.hidden_rows());
         }
         if i.key_pressed(Key::F2) {
             let text = sheet.get(state.cursor).map(|cell| cell.input_text()).unwrap_or_default();

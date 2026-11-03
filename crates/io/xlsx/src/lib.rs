@@ -4,7 +4,9 @@ mod error;
 mod inspect;
 mod read;
 mod store;
+mod tables;
 mod write;
+mod xml;
 
 pub use inspect::inspect;
 pub use read::read;
