@@ -32,7 +32,26 @@ pub(crate) fn handle(
             ui.set_cursor_icon(CursorIcon::ResizeHorizontal);
         } else if state.drag.is_none() && hovered_fill_handle(state, layout, pos) {
             ui.set_cursor_icon(CursorIcon::Crosshair);
+        } else if state.drag.is_none() && table_mark_at(state, sheet, layout, pos).is_some() {
+            ui.set_cursor_icon(CursorIcon::ResizeNwSe);
         }
+    }
+
+    // A right click selects the cell under it, unless it is inside the
+    // selection, and opens the menu.
+    let secondary = ui.input(|i| i.pointer.button_pressed(PointerButton::Secondary));
+    if secondary
+        && let Some(pos) = press_pos_of(ui)
+        && response.contains_pointer()
+        && !state.is_editing()
+        && !state.app_mode
+        && let Some(addr) = layout.cell_at(pos)
+    {
+        if !state.selection().contains(addr) {
+            state.cursor = addr;
+            state.anchor = addr;
+        }
+        state.menu = Some(crate::menu::ContextMenu { at: pos, just_opened: true });
     }
 
     let pressed = ui.input(|i| i.pointer.button_pressed(PointerButton::Primary));
@@ -77,6 +96,10 @@ pub(crate) fn handle(
     }
 }
 
+fn press_pos_of(ui: &Ui) -> Option<Pos2> {
+    ui.input(|i| i.pointer.interact_pos())
+}
+
 fn wheel(ui: &Ui, state: &mut GridState, sheet: &Sheet) {
     let delta = ui.input(|i| i.smooth_scroll_delta());
     if delta == egui::Vec2::ZERO {
@@ -116,6 +139,12 @@ fn press(
     }
     if let Some(span) = layout.resize_handle_at(pos) {
         state.drag = Some(Drag::Resize { col: span.col, start_x: pos.x, start_width: span.width });
+        return;
+    }
+    if !state.is_editing()
+        && let Some(range) = table_mark_at(state, sheet, layout, pos)
+    {
+        state.drag = Some(Drag::TableResize { start: range.start, end: range.end, was: range.end });
         return;
     }
     if !state.is_editing() && hovered_fill_handle(state, layout, pos) {
@@ -195,6 +224,15 @@ fn continue_drag(
                 state.reference_end = addr;
             }
         }
+        Drag::TableResize { start, was, .. } => {
+            // The mark hangs below the corner, so the corner is up and left of the pointer.
+            if let Some(addr) = drag_cell(state, sheet, layout, pos - egui::vec2(4.0, 10.0)) {
+                // The header row and first column stay, so the corner never
+                // passes above or left of them.
+                let end = CellAddr::new(addr.row.max(start.row), addr.col.max(start.col));
+                state.drag = Some(Drag::TableResize { start, end, was });
+            }
+        }
         Drag::ScrollVertical => {
             let (track, _) = track_rects(whole, state.header_size().y);
             let (rows, _) = scroll_extent(state, sheet);
@@ -235,6 +273,15 @@ fn drag_cell(state: &mut GridState, sheet: &Sheet, layout: &Layout, pos: Pos2) -
 }
 
 fn finish_drag(ui: &Ui, state: &mut GridState, actions: &mut Vec<GridAction>) {
+    if let Some(Drag::TableResize { start, end, was }) = state.drag {
+        // Resizing goes through the table command, which checks overlaps and
+        // makes it one undo step. It finds the table by its top-left cell.
+        if end != was {
+            actions.push(GridAction::RunCommand(format!("table resize {}", CellRange { start, end })));
+        }
+        state.drag = None;
+        return;
+    }
     if let Some(Drag::Fill { source, target }) = state.drag
         && target != source
     {
@@ -249,6 +296,20 @@ fn finish_drag(ui: &Ui, state: &mut GridState, actions: &mut Vec<GridAction>) {
         state.cursor = target.end;
     }
     state.drag = None;
+}
+
+/// The range of the table whose corner mark is under `pos`.
+fn table_mark_at(state: &GridState, sheet: &Sheet, layout: &Layout, pos: Pos2) -> Option<CellRange> {
+    if state.app_mode || state.is_editing() {
+        return None;
+    }
+    sheet
+        .tables()
+        .iter()
+        .find(|table| {
+            crate::paint::table_mark_rect(layout, table.range).is_some_and(|rect| rect.expand(2.0).contains(pos))
+        })
+        .map(|table| table.range)
 }
 
 /// Whether `pos` is on the `▼` at the right of a table header cell.

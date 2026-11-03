@@ -23,10 +23,35 @@ pub struct Launch {
     pub app: Option<AppMode>,
 }
 
-pub const USAGE: &str = "Usage: kxcel [file]\n       kxcel --app [--nosave] [--name <name>] [--id <id>] <file>";
+/// What the arguments ask for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Parsed {
+    Open(Launch),
+    /// Print the version and stop, without opening a window.
+    Version,
+    Help,
+}
 
-/// Reads the arguments after the program name.
-pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Launch, String> {
+pub const USAGE: &str = "Usage: kxcel [file]\n       kxcel --app [--nosave] [--name <name>] [--id <id>] <file>\n       \
+                         kxcel --version";
+
+/// What `--version` prints, taken from `Cargo.toml` when building.
+pub const VERSION: &str = concat!("kxcel ", env!("CARGO_PKG_VERSION"));
+
+/// Reads the arguments after the program name. `--version` and `--help`
+/// win over anything else.
+pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Parsed, String> {
+    let args: Vec<OsString> = args.into_iter().collect();
+    if args.iter().any(|arg| arg == "--version" || arg == "-V") {
+        return Ok(Parsed::Version);
+    }
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        return Ok(Parsed::Help);
+    }
+    parse_launch(args).map(Parsed::Open)
+}
+
+fn parse_launch(args: impl IntoIterator<Item = OsString>) -> Result<Launch, String> {
     let mut launch = Launch::default();
     let mut mode = AppMode::default();
     let (mut app, mut app_only) = (false, None);
@@ -70,7 +95,19 @@ mod tests {
     use super::*;
 
     fn parse_strs(args: &[&str]) -> Result<Launch, String> {
-        parse(args.iter().map(OsString::from))
+        match parse(args.iter().map(OsString::from))? {
+            Parsed::Open(launch) => Ok(launch),
+            other => Err(format!("{other:?}")),
+        }
+    }
+
+    #[test]
+    fn version_and_help_need_nothing_else() {
+        let parsed = |args: &[&str]| parse(args.iter().map(OsString::from));
+        assert_eq!(parsed(&["--version"]), Ok(Parsed::Version));
+        assert_eq!(parsed(&["--app", "-V"]), Ok(Parsed::Version), "even beside a mistake");
+        assert_eq!(parsed(&["-h"]), Ok(Parsed::Help));
+        assert_eq!(VERSION, format!("kxcel {}", env!("CARGO_PKG_VERSION")));
     }
 
     #[test]

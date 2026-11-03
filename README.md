@@ -8,6 +8,7 @@ spreadsheet, and anything complex is done through commands.
 ```sh
 kxcel data.xlsx
 kxcel-cli data.xlsx -c "sort B" -c "save"
+kxcel --version
 ```
 
 In the window, press `F1` for help, `Ctrl+L` for the command line, where
@@ -30,8 +31,9 @@ type `=` to list functions.
 - Full screen (`F11`) and dark or light themes (`theme light`)
 - Fill handle that continues series such as 1, 2, 3 and 1, 2, 4
 - `Ctrl+Arrow` jumps to the edge of the data
-- Tables (`Ctrl+T`, `table`) with sorting and filters, from the command line
-  or the `▼` on each header, saved as Excel tables
+- Tables made from the selection (`Ctrl+T`, right-click, `table`), resized by
+  dragging their corner, with sorting and filters from the command line or the
+  `▼` on each header, saved as Excel tables
 - App mode: mark input cells (`app input B2:B9`), then open the workbook with
   `kxcel --app`, or register it in the app list and dock with its own text
   icon (`app install 견적 계산기`)

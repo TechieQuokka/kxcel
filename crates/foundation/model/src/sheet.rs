@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use crate::table::Shift;
-use crate::{Cell, CellAddr, CellRange, CellValue, MAX_COLS, MAX_ROWS, RowSet, SheetMeta, Table};
+use crate::{Cell, CellAddr, CellRange, CellValue, MAX_COLS, RowSet, SheetMeta, Table};
 
 /// Default column width in pixels.
 pub const DEFAULT_COL_WIDTH: f32 = 96.0;
@@ -183,51 +183,21 @@ impl Sheet {
         }
     }
 
-    /// The block of data around `addr`, as Excel finds it for a new table: it
-    /// grows while any filled cell touches its edge, corners included. `None`
-    /// when nothing around `addr`, including itself, is filled.
-    pub fn current_region(&self, addr: CellAddr) -> Option<CellRange> {
-        let mut region = CellRange::single(addr);
-        let any_filled = |range: CellRange| self.iter_range(range).any(|(at, _)| self.is_filled(at));
-        loop {
-            let (start, end) = (region.start, region.end);
-            let wider = CellRange {
-                start: CellAddr::new(start.row.saturating_sub(1), start.col.saturating_sub(1)),
-                end: CellAddr::new((end.row + 1).min(MAX_ROWS - 1), (end.col + 1).min(MAX_COLS - 1)),
-            };
-            let edges = [
-                (start.row > 0).then(|| CellRange::new(wider.start, CellAddr::new(wider.start.row, wider.end.col))),
-                (end.row + 1 < MAX_ROWS)
-                    .then(|| CellRange::new(CellAddr::new(wider.end.row, wider.start.col), wider.end)),
-                (start.col > 0).then(|| CellRange::new(wider.start, CellAddr::new(wider.end.row, wider.start.col))),
-                (end.col + 1 < MAX_COLS)
-                    .then(|| CellRange::new(CellAddr::new(wider.start.row, wider.end.col), wider.end)),
-            ];
-            let [up, down, left, right] = edges.map(|edge| edge.is_some_and(any_filled));
-            if !(up || down || left || right) {
-                break;
-            }
-            region = CellRange {
-                start: CellAddr::new(
-                    if up { wider.start.row } else { start.row },
-                    if left { wider.start.col } else { start.col },
+    /// The smallest range inside `range` that holds all its filled cells, so
+    /// empty rows and columns at its edges are left out. `None` when nothing
+    /// in it is filled.
+    pub fn filled_bounds(&self, range: CellRange) -> Option<CellRange> {
+        let mut bounds: Option<CellRange> = None;
+        for (at, _) in self.iter_range(range).filter(|(at, _)| self.is_filled(*at)) {
+            bounds = Some(match bounds {
+                None => CellRange::single(at),
+                Some(b) => CellRange::new(
+                    CellAddr::new(b.start.row.min(at.row), b.start.col.min(at.col)),
+                    CellAddr::new(b.end.row.max(at.row), b.end.col.max(at.col)),
                 ),
-                end: CellAddr::new(
-                    if down { wider.end.row } else { end.row },
-                    if right { wider.end.col } else { end.col },
-                ),
-            };
+            });
         }
-        if region.is_single() && !self.is_filled(addr) {
-            return None;
-        }
-        // Trim empty edge rows and columns left by an empty starting cell.
-        let used = self.iter_range(region).filter(|(at, _)| self.is_filled(*at)).map(|(at, _)| at);
-        let (mut top, mut left, mut bottom, mut right) = (u32::MAX, u32::MAX, 0, 0);
-        for at in used {
-            (top, left, bottom, right) = (top.min(at.row), left.min(at.col), bottom.max(at.row), right.max(at.col));
-        }
-        (top != u32::MAX).then(|| CellRange { start: CellAddr::new(top, left), end: CellAddr::new(bottom, right) })
+        bounds
     }
 
     /// The smallest range holding every stored cell.
@@ -482,17 +452,15 @@ mod table_tests {
     }
 
     #[test]
-    fn current_region_grows_while_data_touches_it() {
+    fn filled_bounds_trim_empty_edges() {
         let mut sheet = Sheet::new("S");
-        for at in ["B2", "D2", "B3", "C3", "D3", "E4", "G9"] {
+        for at in ["B2", "D2", "C4"] {
             sheet.set(at.parse().unwrap(), Cell::parse_input("1"));
         }
-        let region = |at: &str| sheet.current_region(at.parse().unwrap()).map(|r| r.to_string());
-        assert_eq!(region("B2").as_deref(), Some("B2:E4"), "a gap in the header and a diagonal touch");
-        assert_eq!(region("C2").as_deref(), Some("B2:E4"), "from an empty cell inside");
-        assert_eq!(region("A1").as_deref(), Some("B2:E4"), "from an empty cell next to it");
-        assert_eq!(region("G9").as_deref(), Some("G9"));
-        assert_eq!(region("J20"), None);
+        let bounds = |range: &str| sheet.filled_bounds(range.parse().unwrap()).map(|r| r.to_string());
+        assert_eq!(bounds("A1:F9").as_deref(), Some("B2:D4"));
+        assert_eq!(bounds("C1:F9").as_deref(), Some("C2:D4"), "only what is inside counts");
+        assert_eq!(bounds("E5:F9"), None);
     }
 
     #[test]

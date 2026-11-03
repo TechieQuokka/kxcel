@@ -791,3 +791,103 @@ fn app_mode_has_no_headers() {
     h.release_at(pos2(96.0 + 48.0, 24.0 + 12.0));
     assert_eq!(h.state.cursor, addr("B2"));
 }
+
+#[test]
+fn enter_after_tab_goes_back_to_the_column_the_tabs_started_in() {
+    let mut h = Harness::new();
+    h.state.go_to(addr("B3"));
+    h.frame(Vec::new());
+    for text in ["이름", "가격"] {
+        h.typed(text);
+        h.key(Key::Tab, Modifiers::NONE);
+    }
+    h.typed("수량");
+    h.key(Key::Enter, Modifiers::NONE);
+    assert!(h.actions.contains(&commit("D3", "수량")));
+    assert_eq!(h.state.cursor, addr("B4"), "Excel goes to the start column");
+    h.key(Key::Tab, Modifiers::NONE);
+    h.key(Key::Tab, Modifiers::NONE);
+    h.key(Key::Enter, Modifiers::NONE);
+    assert_eq!(h.state.cursor, addr("B5"), "Tab without typing counts too, and a new run starts at B");
+}
+
+#[test]
+fn other_moves_end_the_tab_run() {
+    let mut h = Harness::new();
+    h.key(Key::Tab, Modifiers::NONE);
+    h.key(Key::Tab, Modifiers::NONE);
+    h.key(Key::ArrowRight, Modifiers::NONE);
+    h.key(Key::Enter, Modifiers::NONE);
+    assert_eq!(h.state.cursor, addr("D2"), "an arrow ends the run, so Enter goes straight down");
+    h.key(Key::Tab, Modifiers::NONE);
+    h.press_at(cell_center(5, 1));
+    h.release_at(cell_center(5, 1));
+    h.key(Key::Enter, Modifiers::NONE);
+    assert_eq!(h.state.cursor, addr("B7"), "a click ends it too");
+    h.key(Key::Tab, Modifiers::NONE);
+    h.key(Key::Tab, Modifiers::SHIFT);
+    h.key(Key::Tab, Modifiers::NONE);
+    h.key(Key::Enter, Modifiers::SHIFT);
+    assert_eq!(h.state.cursor, addr("B6"), "Shift+Tab stays in the run, and Shift+Enter goes up to the start column");
+}
+
+fn secondary(pos: Pos2, pressed: bool) -> Event {
+    Event::PointerButton { pos, button: PointerButton::Secondary, pressed, modifiers: Modifiers::NONE }
+}
+
+fn right_click(h: &mut Harness, pos: Pos2) {
+    h.frame(vec![Event::PointerMoved(pos)]);
+    h.frame(vec![secondary(pos, true)]);
+    h.frame(vec![secondary(pos, false)]);
+    h.frame(Vec::new());
+}
+
+#[test]
+fn right_click_menu_makes_the_selection_a_table() {
+    let mut h = Harness::new();
+    h.press_at(cell_center(0, 0));
+    h.drag_to(cell_center(2, 1));
+    h.release_at(cell_center(2, 1));
+    assert_eq!(h.state.selection().to_string(), "A1:B3");
+    right_click(&mut h, cell_center(1, 1));
+    assert!(h.state.menu_open());
+    assert_eq!(h.state.selection().to_string(), "A1:B3", "a right click inside keeps the selection");
+    h.press_at(cell_center(1, 1) + vec2(40.0, 14.0));
+    h.release_at(cell_center(1, 1) + vec2(40.0, 14.0));
+    assert!(h.actions.contains(&GridAction::RunCommand("table create".into())));
+    assert!(!h.state.menu_open());
+}
+
+#[test]
+fn right_click_outside_selects_that_cell_and_esc_closes() {
+    let mut h = Harness::new();
+    right_click(&mut h, cell_center(4, 2));
+    assert_eq!(h.state.selection().to_string(), "C5");
+    assert!(h.state.menu_open());
+    h.typed("x");
+    assert!(!h.state.is_editing(), "typing does not reach the cell while the menu is open");
+    h.key(Key::Escape, Modifiers::NONE);
+    assert!(!h.state.menu_open());
+    assert!(h.actions.iter().all(|a| !matches!(a, GridAction::RunCommand(_))));
+}
+
+#[test]
+fn dragging_a_table_corner_resizes_it() {
+    let mut h = Harness::new();
+    table_sheet(&mut h);
+    h.frame(Vec::new());
+    // The mark sits just below the bottom right corner of A3.
+    let mark = pos2(56.0 + 96.0 - 3.0, 24.0 + 24.0 * 3.0 + 6.0);
+    h.press_at(mark);
+    h.drag_to(cell_center(5, 2));
+    h.drag_to(cell_center(5, 2));
+    h.release_at(cell_center(5, 2));
+    assert!(h.actions.contains(&GridAction::RunCommand("table resize A1:C6".into())), "{:?}", h.actions);
+    h.actions.clear();
+    h.press_at(mark);
+    h.release_at(mark);
+    assert!(
+        h.actions.iter().all(|a| !matches!(a, GridAction::RunCommand(_))),
+        "a click without a drag changes nothing"
+    );
+}

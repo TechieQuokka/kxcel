@@ -1,7 +1,7 @@
 # kxcel: Design Document
 
-Status: implemented through 1.29.0. Hand checks for 1.6.0 onward are listed in section 8.
-Version: 1.29.0. All crates share the workspace version. A new feature raises the
+Status: implemented through 1.32.0. Hand checks for 1.6.0 onward are listed in section 8.
+Version: 1.32.0. All crates share the workspace version. A new feature raises the
 minor version, such as 1.0.0 to 1.1.0, and a bug fix raises the patch version,
 such as 1.1.0 to 1.1.1.
 Last updated: 2026-11-02
@@ -61,6 +61,13 @@ Features outside this first version are added when real use calls for them.
 ### Cells
 
 - Cell selection, arrow key movement, and editing by typing or double-click
+- `Tab` moves right, and `Enter` after a run of `Tab` moves goes to the next
+  row in the column the run started in, as in Excel, so a table fills row by
+  row. `Shift+Tab` stays in the run and `Shift+Enter` goes up to the start
+  column. Any other move, such as an arrow, a click, or `goto`, ends the run,
+  and `Enter` then goes straight down. The grid keeps the start column with
+  the cell the run reached, so a cursor anywhere else means the run is over
+  (1.31.0)
 - `Ctrl+Arrow` jumps to the edge of the data as Excel does: to the end of a
   run of filled cells, else to the next filled cell, else to the sheet edge.
   `Ctrl+Shift+Arrow` extends the selection the same way. A formula counts as
@@ -253,10 +260,24 @@ Picking a folder lists its contents next. A path with spaces is quoted, and
 ### Tables (1.22.0)
 
 - A table is a named range whose first row holds column headers.
-  `table create [name]` and `Ctrl+T` make one from the selection, or with one
-  cell selected, from the block of data around it: the range grows while any
-  filled cell touches its edge, corners included, as Excel's current region
-  does.
+  `table create [name]`, `Ctrl+T`, and Create table on the right-click menu
+  make one from the selected range and nothing else (1.32.0). Empty cells
+  inside stay, and rows and columns that are empty at the selection's edges
+  are left out. With one cell selected, or nothing filled in the range, no
+  table is made and a message says why. Until 1.32.0 a single cell grew into
+  the block of data around it, which guessed too much.
+- The right-click menu (1.32.0) opens where the pointer is. A right click
+  inside the selection keeps it, and one outside selects that cell first.
+  Create table is greyed out with a note until a range is selected. `Esc` or
+  a click elsewhere closes it, and while it is open, typing does not reach
+  cells. App mode has no menu.
+- Resizing by mouse (1.32.0): a small triangle just below a table's bottom
+  right corner, clear of the fill handle, drags the corner. The header row and
+  first column stay, an outline shows the new range while dragging, and
+  releasing runs `table resize <range>`, which checks overlaps and makes it
+  one undo step. `table resize` finds the table at the cursor, or else the one
+  starting where the range starts, so the drag needs no cursor move. A click
+  without a drag changes nothing.
 - Empty or repeated headers are written as names such as `Column3`, as Excel
   does. Names default to `Table1`, `Table2`, and so on, are unique in the
   workbook ignoring case, and follow Excel's rules: a letter or underscore
@@ -450,7 +471,15 @@ kxcel data.xlsx
 # Headless, using the same commands as the GUI command line
 kxcel-cli data.xlsx -c "sort B" -c "save"
 kxcel-cli data.xlsx --print
+
+# The version, from Cargo.toml at build time (1.30.0)
+kxcel --version
+kxcel-cli --version
 ```
+
+`--version` (or `-V`) prints `kxcel 1.30.0` or `kxcel-cli 1.30.0` and stops,
+without a file and, for `kxcel`, without opening a window. It wins over any
+other argument, as `--help` does.
 
 `kxcel-cli` processes files directly. It does not control a running window.
 Commands run in order and stop at the first failure, and changes are written
@@ -600,7 +629,7 @@ excel/
     │
     ├── ui/
     │   ├── grid/                    # excel-ui-grid
-    │   │   ├── src/ lib, state, layout, paint, palette, headers, pointer,
+    │   │   ├── src/ lib, state, layout, paint, palette, headers, pointer, menu,
     │   │   │        selection, fill, filter_popup, editor, edge, clipboard,
     │   │   │        function_hint, autofit
     │   │   └── tests/ interaction
@@ -804,6 +833,8 @@ built. The hand checks from stage 2 are listed in section 8.
 | Functions (1.12.0 to 1.15.0) | Covered by automated tests, including every help example with a result | Compare a few results with Excel |
 | Completion limits, Tab closing parentheses, help tabs (1.15.2 to 1.17.0) | Covered by automated tests | Check by hand while typing formulas |
 | Full screen and themes (1.18.0, 1.19.0) | Covered by automated tests, which cannot see the real window | Check `F11`, `theme light`, and that the theme returns after a restart |
+| Tables from the selection (1.32.0) | Covered by automated tests | Check by hand: the right-click menu, and dragging a table's corner mark both ways |
+| `Tab` then `Enter` (1.31.0) | Covered by automated tests | Check by hand while filling a table row by row |
 | `Ctrl+Arrow` (1.21.0) | Covered by automated tests | Check by hand: jumps in a real file, and the status bar after `Ctrl+Shift+Arrow` |
 | Tables (1.22.0, 1.23.0) | Covered by automated tests, which cannot see the drawing | Check by hand: `Ctrl+T`, the header, outline, and sort arrow in both themes, typing below a table |
 | Registered apps (1.29.0) | Files and their contents covered by automated tests in a temporary folder | Check by hand: the app and its icon in the app list and dock, that it opens in app mode, and `nosave` |

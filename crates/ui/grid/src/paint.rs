@@ -65,6 +65,12 @@ pub(crate) fn cells(ui: &Ui, state: &GridState, sheet: &Sheet, layout: &Layout) 
 
     for table in sheet.tables() {
         table_outline(ui, layout, table.range, palette.table_line);
+        if !state.app_mode
+            && let Some(rect) = table_mark_rect(layout, table.range)
+        {
+            let points = vec![rect.right_top(), rect.right_bottom(), rect.left_top()];
+            painter.add(egui::Shape::convex_polygon(points, palette.table_line, Stroke::NONE));
+        }
     }
 
     match state.drag {
@@ -76,6 +82,9 @@ pub(crate) fn cells(ui: &Ui, state: &GridState, sheet: &Sheet, layout: &Layout) 
         }
         Some(Drag::FormulaRange { start, .. }) => {
             outline(ui, layout, CellRange::new(start, state.reference_end), accent);
+        }
+        Some(Drag::TableResize { start, end, .. }) => {
+            outline(ui, layout, CellRange { start, end }, accent);
         }
         _ => {}
     }
@@ -214,6 +223,18 @@ fn visible_corner(layout: &Layout, range: CellRange, top_left: bool) -> Option<R
     };
     layout.cell_rect(excel_model::CellAddr::new(span.row, col))
 }
+
+/// Where a table's corner mark is: a small triangle just below the table's
+/// bottom right corner, clear of the fill handle, if the corner is in view.
+pub(crate) fn table_mark_rect(layout: &Layout, range: CellRange) -> Option<Rect> {
+    let corner = layout.cell_rect(range.end)?;
+    Some(Rect::from_min_max(
+        corner.right_bottom() + vec2(-TABLE_MARK_SIZE, 3.0),
+        corner.right_bottom() + vec2(0.0, 3.0 + TABLE_MARK_SIZE),
+    ))
+}
+
+const TABLE_MARK_SIZE: f32 = 8.0;
 
 /// Where the fill handle is, if the selection's corner is in view.
 pub(crate) fn fill_handle_rect(layout: &Layout, selection: CellRange) -> Option<Rect> {

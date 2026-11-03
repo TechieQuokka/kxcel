@@ -1286,7 +1286,11 @@ mod tests {
         let mut h = blank();
         h.enter_cell("이름");
         h.enter_cell("사과");
+        h.key_with(Key::T, Modifiers::COMMAND);
+        assert!(h.app.doc.workbook.active().tables().is_empty(), "one cell is not a range");
         h.key(Key::ArrowUp);
+        h.key(Key::ArrowUp);
+        h.key_with(Key::ArrowDown, Modifiers::SHIFT);
         h.key_with(Key::T, Modifiers::COMMAND);
         let tables = |h: &Harness| -> Vec<String> {
             h.app.doc.workbook.active().tables().iter().map(|t| format!("{} {}", t.name, t.range)).collect()
@@ -1307,7 +1311,7 @@ mod tests {
         for text in ["값", "1", "20", "3", "40", "=SUM(A2:A5)"] {
             h.enter_cell(text);
         }
-        h.run_line("goto A1");
+        h.drag(cell_center(0, 0), cell_center(5, 0));
         h.run_line("table create T");
         h.run_line("goto A2");
         h.run_line("table filter 값 >10");
@@ -1347,7 +1351,7 @@ mod tests {
         for text in ["과일", "배", "사과", "감"] {
             h.enter_cell(text);
         }
-        h.run_line("goto A1");
+        h.drag(cell_center(0, 0), cell_center(3, 0));
         h.run_line("table create");
         h.key(Key::Escape);
         click(&mut h, cell_center(0, 0) + vec2(40.0, 0.0));

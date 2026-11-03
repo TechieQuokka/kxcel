@@ -80,6 +80,16 @@ fn bad_usage_exits_with_two() {
 }
 
 #[test]
+fn version_prints_the_version() {
+    for flag in ["--version", "-V"] {
+        let output = cli(&[flag]);
+        assert!(output.status.success());
+        assert_eq!(stdout(&output).trim(), format!("kxcel-cli {}", env!("CARGO_PKG_VERSION")));
+    }
+    assert!(stdout(&cli(&["--help"])).contains("--version"));
+}
+
+#[test]
 fn help_lists_options() {
     let output = cli(&["--help"]);
     assert!(output.status.success());

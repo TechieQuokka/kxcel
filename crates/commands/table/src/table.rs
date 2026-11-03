@@ -19,13 +19,14 @@ impl Command for TableCommand {
             summary: "Create, remove, resize, sort, filter, or list tables",
             usage: "table [create [name] | remove | resize <range> | sort <column> [desc] | filter <column> <values...>]",
             description: "A table is a range whose first row holds column headers. create makes the \
-                          selection a table, or with one cell selected, the block of data around it. Empty \
+                          selected range a table, leaving out empty rows and columns at its edges. Empty \
                           or repeated headers get names such as Column3. Names default to Table1, Table2, \
                           and so on. A value typed just below a table adds a row, and a header typed just \
                           right of it adds a column. remove, resize, and sort act on the table at the \
                           cursor; remove leaves its cells as they are. sort orders the rows below the \
                           header by the column with that header, once: the table does not stay sorted. With nothing after it, lists the tables on \
-                          the sheet. Ctrl+T also creates a table.",
+                          the sheet. Ctrl+T, or Create table on the right-click menu, also creates a table, \
+                          and dragging the mark at a table's bottom right corner resizes it.",
             args: &[
                 ("create [name]", "Optional. Makes a table, named as given or TableN"),
                 ("remove", "Optional. The table at the cursor stops being a table"),
@@ -85,13 +86,13 @@ fn list(ctx: &mut Context<'_>) -> Result<(), CommandError> {
 
 fn create(ctx: &mut Context<'_>, name: Option<&str>) -> Result<(), CommandError> {
     let sheet = ctx.doc.workbook.active();
-    let range = if ctx.selection.is_single() {
-        sheet
-            .current_region(ctx.cursor)
-            .ok_or_else(|| CommandError::new("No data around the cursor. Select the range for the table"))?
-    } else {
-        ctx.selection
-    };
+    if ctx.selection.is_single() {
+        return Err(CommandError::new("Select the range for the table first"));
+    }
+    // Empty rows and columns at the selection's edges are left out.
+    let range = sheet
+        .filled_bounds(ctx.selection)
+        .ok_or_else(|| CommandError::new(format!("The selected range {} is empty", ctx.selection)))?;
     if let Some(other) = sheet.tables().iter().find(|table| table.range.overlaps(range)) {
         return Err(CommandError::new(format!("{range} overlaps table {}", other.name)));
     }
@@ -127,7 +128,16 @@ fn remove(ctx: &mut Context<'_>) -> Result<(), CommandError> {
 
 fn resize(ctx: &mut Context<'_>, text: &str) -> Result<(), CommandError> {
     let range: CellRange = text.parse().map_err(CommandError::new)?;
-    let (position, table) = table_at_cursor(ctx)?;
+    // The table at the cursor, or else the one starting where the range does,
+    // as when its corner is dragged.
+    let (position, table) = table_at_cursor(ctx).or_else(|error| {
+        let tables = ctx.doc.workbook.active().tables();
+        tables
+            .iter()
+            .position(|table| table.range.start == range.start)
+            .map(|position| (position, tables[position].clone()))
+            .ok_or(error)
+    })?;
     if range.start.row != table.header_row() {
         return Err(CommandError::new(format!(
             "The header row must stay first: the range must start in row {}",
@@ -338,11 +348,28 @@ mod tests {
     }
 
     #[test]
-    fn creates_from_the_data_around_one_cell_and_names_headers() {
+    fn creates_from_the_selection_trimming_empty_edges_and_names_headers() {
         let mut d = doc();
-        assert_eq!(run_at(&mut d, "B3", None, &["create"]).unwrap(), "Created table Table1 at A1:C3");
+        assert_eq!(run_at(&mut d, "A1", Some("A1:E9"), &["create"]).unwrap(), "Created table Table1 at A1:C3");
         assert_eq!(d.workbook.active().display(addr("B1")), "Column2");
         assert_eq!(run_at(&mut d, "A1", None, &[]).unwrap(), "Table1 A1:C3");
+    }
+
+    #[test]
+    fn one_cell_or_an_empty_range_makes_no_table() {
+        let mut d = doc();
+        assert!(run_at(&mut d, "B2", None, &["create"]).unwrap_err().message.contains("Select the range"));
+        assert!(run_at(&mut d, "H1", Some("H1:J5"), &["create"]).unwrap_err().message.contains("H1:J5 is empty"));
+        assert!(ranges(&d).is_empty());
+    }
+
+    #[test]
+    fn resize_finds_the_table_by_its_corner_when_the_cursor_is_elsewhere() {
+        let mut d = doc();
+        run_at(&mut d, "A1", Some("A1:C3"), &["create"]).unwrap();
+        run_at(&mut d, "H9", None, &["resize", "A1:C5"]).unwrap();
+        assert_eq!(ranges(&d), ["Table1 A1:C5"]);
+        assert!(run_at(&mut d, "H9", None, &["resize", "B1:C5"]).unwrap_err().message.contains("not in a table"));
     }
 
     #[test]
@@ -350,38 +377,39 @@ mod tests {
         let mut d = doc();
         run_at(&mut d, "A1", Some("A1:A3"), &["create", "과일"]).unwrap();
         assert_eq!(ranges(&d), ["과일 A1:A3"]);
+        d.workbook.active_mut().set(addr("E2"), Cell::parse_input("1"));
         run_at(&mut d, "E1", Some("E1:F2"), &["create"]).unwrap();
-        assert_eq!(ranges(&d), ["과일 A1:A3", "Table1 E1:F2"]);
-        assert_eq!(d.workbook.active().display(addr("F1")), "Column2");
+        assert_eq!(ranges(&d), ["과일 A1:A3", "Table1 E2"], "the empty edges of E1:F2 are left out");
     }
 
     #[test]
     fn refuses_overlaps_bad_names_and_empty_places() {
         let mut d = doc();
-        run_at(&mut d, "A1", None, &["create", "T"]).unwrap();
+        run_at(&mut d, "A1", Some("A1:C3"), &["create", "T"]).unwrap();
+        d.workbook.active_mut().set(addr("D4"), Cell::parse_input("x"));
         assert!(run_at(&mut d, "C3", Some("C3:D4"), &["create"]).unwrap_err().message.contains("overlaps table T"));
+        d.workbook.active_mut().set(addr("H1"), Cell::parse_input("x"));
         assert!(run_at(&mut d, "H1", Some("H1:H2"), &["create", "t"]).unwrap_err().message.contains("already exists"));
         assert!(run_at(&mut d, "H1", Some("H1:H2"), &["create", "A1"]).is_err());
-        assert!(run_at(&mut d, "H9", None, &["create"]).unwrap_err().message.contains("No data"));
         assert!(run_at(&mut d, "A1", None, &["nope"]).is_err());
     }
 
     #[test]
     fn names_are_unique_across_sheets() {
         let mut d = doc();
-        run_at(&mut d, "A1", None, &["create"]).unwrap();
+        run_at(&mut d, "A1", Some("A1:C3"), &["create"]).unwrap();
         let first = d.workbook.active().clone();
         let mut second = Sheet::new("Two");
         second.set(addr("A1"), Cell::parse_input("x"));
         d.workbook.replace_sheets(vec![first, second]);
         d.workbook.set_active(1);
-        assert_eq!(run_at(&mut d, "A1", None, &["create"]).unwrap(), "Created table Table2 at A1");
+        assert_eq!(run_at(&mut d, "A1", Some("A1:B2"), &["create"]).unwrap(), "Created table Table2 at A1");
     }
 
     #[test]
     fn removes_and_resizes_the_table_at_the_cursor() {
         let mut d = doc();
-        run_at(&mut d, "A1", None, &["create"]).unwrap();
+        run_at(&mut d, "A1", Some("A1:C3"), &["create"]).unwrap();
         assert_eq!(run_at(&mut d, "B2", None, &["resize", "A1:D5"]).unwrap(), "Table Table1 is now A1:D5");
         assert_eq!(d.workbook.active().display(addr("D1")), "Column4");
         assert!(run_at(&mut d, "B2", None, &["resize", "A2:D5"]).unwrap_err().message.contains("header row"));
@@ -395,7 +423,7 @@ mod tests {
     #[test]
     fn each_change_is_one_undo_step() {
         let mut d = doc();
-        run_at(&mut d, "A1", None, &["create"]).unwrap();
+        run_at(&mut d, "A1", Some("A1:C3"), &["create"]).unwrap();
         run_at(&mut d, "A1", None, &["resize", "A1:C4"]).unwrap();
         run_at(&mut d, "A1", None, &["remove"]).unwrap();
         d.undo();

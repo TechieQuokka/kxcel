@@ -14,6 +14,7 @@ mod filter_popup;
 mod function_hint;
 mod headers;
 mod layout;
+mod menu;
 mod paint;
 mod palette;
 mod pointer;
@@ -93,7 +94,7 @@ pub fn show(
     let body = Rect::from_min_size(rect.min, rect.size() - vec2(SCROLLBAR_SIZE, SCROLLBAR_SIZE));
 
     // While the filter popup is open, its own text boxes take the keyboard.
-    if focused && state.popup.is_none() {
+    if focused && state.popup.is_none() && state.menu.is_none() {
         editor::before_text_input(ui, state, &mut actions);
     }
 
@@ -126,7 +127,8 @@ pub fn show(
         let anchor = layout.cell_rect(popup.header).map_or(layout.body().min, |cell| cell.left_bottom());
         filter_popup::show(ui, &mut state.popup, anchor, &mut actions);
     }
-    let focused = focused && state.popup.is_none();
+    menu::show(ui, state, &mut actions);
+    let focused = focused && state.popup.is_none() && state.menu.is_none();
 
     if focused {
         let moved = editor::show(ui, state, &layout, line_height);

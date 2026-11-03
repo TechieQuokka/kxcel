@@ -8,6 +8,10 @@ use std::process::ExitCode;
 fn main() -> ExitCode {
     let args = match args::parse(std::env::args().skip(1)) {
         Ok(args::Parsed::Run(args)) => args,
+        Ok(args::Parsed::Version) => {
+            println!("{}", args::VERSION);
+            return ExitCode::SUCCESS;
+        }
         Ok(args::Parsed::Help) => {
             println!("{}\n\n{}", args::USAGE, runner::help_text(None).trim_end());
             return ExitCode::SUCCESS;

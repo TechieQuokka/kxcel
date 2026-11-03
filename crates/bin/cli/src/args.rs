@@ -8,7 +8,11 @@ Changes are only written by the save command.
 
   -c, --command <command>   A command, such as \"sort B\" or \"save\"
   -p, --print               Print the active sheet as tab-separated values
+  -V, --version             Show the version
   -h, --help                Show this help";
+
+/// What `--version` prints, taken from `Cargo.toml` when building.
+pub const VERSION: &str = concat!("kxcel-cli ", env!("CARGO_PKG_VERSION"));
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Args {
@@ -21,6 +25,7 @@ pub struct Args {
 pub enum Parsed {
     Run(Args),
     Help,
+    Version,
 }
 
 pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
@@ -31,6 +36,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => return Ok(Parsed::Help),
+            "-V" | "--version" => return Ok(Parsed::Version),
             "-c" | "--command" => commands.push(args.next().ok_or("-c needs a command")?),
             "-p" | "--print" => print = true,
             option if option.starts_with('-') => return Err(format!("Unknown option: {option}")),
@@ -71,5 +77,12 @@ mod tests {
     #[test]
     fn help_wins() {
         assert_eq!(parsed(&["-h"]), Ok(Parsed::Help));
+    }
+
+    #[test]
+    fn version_needs_no_file() {
+        assert_eq!(parsed(&["--version"]), Ok(Parsed::Version));
+        assert_eq!(parsed(&["a.xlsx", "-V"]), Ok(Parsed::Version));
+        assert_eq!(VERSION, format!("kxcel-cli {}", env!("CARGO_PKG_VERSION")));
     }
 }

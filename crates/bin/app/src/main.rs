@@ -16,7 +16,15 @@ use app::ExcelApp;
 
 fn main() -> eframe::Result {
     let launch = match args::parse(std::env::args_os().skip(1)) {
-        Ok(launch) => launch,
+        Ok(args::Parsed::Open(launch)) => launch,
+        Ok(args::Parsed::Version) => {
+            println!("{}", args::VERSION);
+            return Ok(());
+        }
+        Ok(args::Parsed::Help) => {
+            println!("{}", args::USAGE);
+            return Ok(());
+        }
         Err(error) => {
             eprintln!("{error}\n{}", args::USAGE);
             std::process::exit(2);

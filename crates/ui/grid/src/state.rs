@@ -23,6 +23,13 @@ pub(crate) enum Drag {
     },
     ScrollVertical,
     ScrollHorizontal,
+    /// Dragging a table's corner mark. `start` is the table's top-left cell,
+    /// which stays, `end` where the corner is now, and `was` where it began.
+    TableResize {
+        start: CellAddr,
+        end: CellAddr,
+        was: CellAddr,
+    },
 }
 
 /// The grid's view state: cursor, selection, scroll position, and in-progress edit.
@@ -59,9 +66,15 @@ pub struct GridState {
     pub(crate) pending_tab: Option<bool>,
     /// The sort and filter popup of a table header, when open.
     pub(crate) popup: Option<crate::FilterPopup>,
+    /// The right-click menu, when open.
+    pub(crate) menu: Option<crate::menu::ContextMenu>,
     /// App mode: no headers, only input cells can be edited, and `Tab` and
     /// `Enter` move between input cells. Set by the application.
     pub app_mode: bool,
+    /// The column a run of `Tab` moves started in, and the cell the run has
+    /// reached. `Enter` goes back to that column, as in Excel, but only while
+    /// the cursor is still where the run left it.
+    tab_run: Option<(u32, CellAddr)>,
     reveal: bool,
 }
 
@@ -89,7 +102,9 @@ impl Default for GridState {
             hints_dismissed: false,
             pending_tab: None,
             popup: None,
+            menu: None,
             app_mode: false,
+            tab_run: None,
             reveal: false,
         }
     }
@@ -113,6 +128,11 @@ impl GridState {
     /// How many more functions match than the list shows.
     pub fn more_functions(&self) -> usize {
         self.hints_more
+    }
+
+    /// Whether the right-click menu is open.
+    pub fn menu_open(&self) -> bool {
+        self.menu.is_some()
     }
 
     /// The open sort and filter popup, if any.
@@ -149,6 +169,9 @@ impl GridState {
 
     /// Moves for `Enter` or `Tab`: by `rows` and `cols`, or in app mode, to
     /// the next input cell, or the one before when going up or left.
+    ///
+    /// After `Tab` moves, `Enter` goes to the next row in the column the `Tab`
+    /// run started in. Any other move in between ends the run.
     pub(crate) fn step(&mut self, rows: i64, cols: i64, sheet: &excel_model::Sheet) {
         let inputs = &sheet.meta().input_cells;
         if self.app_mode
@@ -157,7 +180,18 @@ impl GridState {
             self.jump_to(next, false);
             return;
         }
+        let run = self.tab_run.take().filter(|(_, reached)| *reached == self.cursor);
+        if cols != 0 {
+            let start = run.map_or(self.cursor.col, |(start, _)| start);
+            self.move_cursor(rows, cols, false, sheet.hidden_rows());
+            self.tab_run = Some((start, self.cursor));
+            return;
+        }
         self.move_cursor(rows, cols, false, sheet.hidden_rows());
+        if let Some((start, _)) = run {
+            self.cursor.col = start;
+            self.anchor = self.cursor;
+        }
     }
 
     pub fn cancel_edit(&mut self) {
