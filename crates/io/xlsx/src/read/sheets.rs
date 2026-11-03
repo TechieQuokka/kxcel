@@ -7,8 +7,8 @@ use excel_model::{Sheet, Workbook};
 use super::{cells, formulas};
 use crate::error::{file_error, require_xlsx};
 
-/// Reads a workbook. Formulas keep the results stored in the file, so a caller
-/// should recalculate before showing it.
+/// Reads a workbook, showing the sheet it was saved showing. Formulas keep the
+/// results stored in the file, so a caller should recalculate before showing it.
 pub fn read(path: &Path) -> Result<Workbook, StoreError> {
     require_xlsx(path)?;
     let mut file: Xlsx<_> = open_workbook(path).map_err(|e| file_error("open", path, e))?;
@@ -30,5 +30,8 @@ pub fn read(path: &Path) -> Result<Workbook, StoreError> {
             sheet.set_meta(found);
         }
     }
-    Ok(Workbook::from_sheets(sheets))
+    let active = meta.active_sheet.and_then(|name| sheets.iter().position(|sheet| sheet.name == name));
+    let mut workbook = Workbook::from_sheets(sheets);
+    workbook.set_active(active.unwrap_or(0));
+    Ok(workbook)
 }

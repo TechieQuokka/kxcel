@@ -163,5 +163,30 @@ mod tests {
     fn names_the_sheet_after_the_file() {
         assert_eq!(sheet_name(Path::new("/x/매출 [2026].csv")), "매출 _2026_");
         assert_eq!(sheet_name(Path::new(&format!("{}.csv", "a".repeat(40)))).len(), 31);
+        assert_eq!(sheet_name(Path::new("'quoted'.csv")), "quoted");
+        assert_eq!(sheet_name(Path::new("''.csv")), "Sheet1");
+    }
+
+    #[test]
+    fn reads_windows_line_endings() {
+        let s = sheet("a,b\r\n1,2\r\n");
+        assert_eq!(at(&s, "B1"), CellValue::Text("b".into()));
+        assert_eq!(at(&s, "B2"), CellValue::Number(2.0));
+        assert_eq!(s.used_range().map(|r| r.end), Some("B2".parse().unwrap()));
+    }
+
+    #[test]
+    fn an_empty_file_gives_an_empty_sheet() {
+        assert!(sheet("").is_empty());
+        assert!(parse(b"\xEF\xBB\xBF", "S".into()).unwrap().is_empty());
+        assert_eq!(encode(&Sheet::new("S")).unwrap(), b"");
+    }
+
+    #[test]
+    fn numbers_with_commas_read_as_numbers_as_when_typed() {
+        let s = sheet("\"1,000\",\"-1,234,567.5\",\"1,2\"\n");
+        assert_eq!(at(&s, "A1"), CellValue::Number(1000.0));
+        assert_eq!(at(&s, "B1"), CellValue::Number(-1_234_567.5));
+        assert_eq!(at(&s, "C1"), CellValue::Text("1,2".into()));
     }
 }

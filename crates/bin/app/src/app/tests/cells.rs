@@ -62,7 +62,7 @@ fn every_built_in_function_can_be_completed_and_calculated() {
     h.typed("=");
     assert!(h.app.grid.offered_functions().is_empty(), "= alone offers nothing");
     h.typed("sum");
-    assert_eq!(h.app.grid.offered_functions(), ["SUM", "SUMIF", "SUMIFS"]);
+    assert_eq!(h.app.grid.offered_functions(), ["SUM", "SUMIF", "SUMIFS", "SUMPRODUCT"]);
     h.key(Key::Tab);
     h.typed("A1:A2)");
     h.key(Key::Enter);

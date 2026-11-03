@@ -19,10 +19,11 @@ type `=` to list functions.
 
 - `.xlsx` reading and writing, with a warning before saving over content the
   app cannot keep
-- Formulas with automatic, incremental recalculation and 55 functions: math
-  and conditional sums (`SUM`, `ROUND`, `SUMIF`, `COUNTIFS`), logic (`IF`, `IFS`,
-  `IFERROR`, `AND`), text (`LEFT`, `TEXT`, `TEXTJOIN`, `SUBSTITUTE`), lookup
-  (`VLOOKUP`, `XLOOKUP`, `INDEX`, `MATCH`), and dates (`TODAY`, `DATE`, `DATEDIF`)
+- Formulas with automatic, incremental recalculation and 67 functions: math
+  and conditional sums (`SUM`, `ROUND`, `CEILING`, `SUMIFS`, `SUMPRODUCT`,
+  `MAXIFS`), logic (`IF`, `IFS`, `IFERROR`, `IFNA`), text (`LEFT`, `TEXT`,
+  `TEXTJOIN`, `SUBSTITUTE`), lookup (`VLOOKUP`, `XLOOKUP`, `INDEX`, `MATCH`), and
+  dates (`TODAY`, `DATE`, `DATEDIF`, `EOMONTH`, `NETWORKDAYS`, `WORKDAY`)
 - Dates shown as `YYYY-MM-DD`, typed the same way
 - Numbers shown with commas, such as `1,234,567`, except where `format A plain`
   says otherwise
@@ -38,7 +39,7 @@ type `=` to list functions.
 - Tables made from the selection (`Ctrl+T`, right-click, `table`), resized by
   dragging their borders, with sorting and filters from the command line or the
   `▼` on each header, saved as Excel tables
-- App mode: mark input cells (`app input B2:B9`), then open the workbook with
+- App mode: mark input cells (`app input B2:B9` or right-click), then open the workbook with
   `kxcel --app`, or register it in the app list and dock with its own text
   icon (`app install 견적 계산기`)
 - Multi-line cells, Korean input, undo, copy and paste

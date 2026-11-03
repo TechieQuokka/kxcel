@@ -1,7 +1,7 @@
 # kxcel: Design Document
 
-Status: implemented through 1.39.1. Hand checks for 1.6.0 onward are listed in section 8.
-Version: 1.39.1. All crates share the workspace version. A new feature raises the
+Status: implemented through 1.41.0. Hand checks for 1.6.0 onward are listed in section 8.
+Version: 1.41.0. All crates share the workspace version. A new feature raises the
 minor version, such as 1.0.0 to 1.1.0, and a bug fix raises the patch version,
 such as 1.1.0 to 1.1.1.
 Last updated: 2026-11-03
@@ -185,6 +185,24 @@ Features outside this first version are added when real use calls for them.
   - `TODAY` uses the computer's time zone, read with `jiff`, and is recomputed
     after every edit
   - `DATE` carries over months and days past their end, as Excel does
+- More functions (1.41.0), bringing the count to 67:
+  - `SUMPRODUCT` multiplies ranges of the same size position by position and
+    adds the products, such as prices times quantities. Cells that are not
+    numbers count as 0, and only the first range's values are visited, so whole
+    columns stay cheap
+  - `AVERAGEIFS`, `MAXIFS`, and `MINIFS` complete `SUMIFS` and `COUNTIFS`, with
+    the same conditions and the same rule that ranges match in size. With no
+    numbers, `AVERAGEIFS` is `#DIV/0!` and the others 0, as in Excel
+  - `CEILING` and `FLOOR` round to a multiple, such as 100 or 500 won, with
+    Excel's rules for negative numbers. The significance may be left out for 1.
+    The quotient is cut to 15 significant digits first, as in `ROUND`, so
+    `CEILING(1.1, 0.1)` stays 1.1
+  - `IFNA` replaces only `#N/A`, so a lookup that finds nothing can give a
+    fallback while other errors still show
+  - `EDATE` and `EOMONTH` move by months, keeping the day or taking the month's
+    last day. `WEEKDAY` numbers days of the week in Excel's types 1, 2, and 3.
+    `NETWORKDAYS` counts Monday to Friday between two dates, and `WORKDAY` finds
+    the date some working days later; both take optional holidays
 - An empty argument, as in `XLOOKUP(a, b, c, , 2)`, is not supported. Give a
   value instead
 - A test checks that every help example stating a result gives that result
@@ -271,7 +289,8 @@ Picking a folder lists its contents next. A path with spaces is quoted, and
 
 ### Files
 
-- Read and write `.xlsx`, including multiple sheets
+- Read and write `.xlsx`, including multiple sheets, opening on the sheet that
+  was showing when saved (1.40.0)
 - Sheets (1.20.0): `sheet rename <name>` renames the sheet showing and updates
   every formula that names it, such as `=매출!A1`, quoting a new name with
   spaces. `sheet delete` deletes the sheet showing after asking, turns
@@ -442,6 +461,14 @@ Picking a folder lists its contents next. A path with spaces is quoted, and
 - In the grid they show a light tint from the theme palette, so it is clear
   what an app will let users change. Outside app mode every cell can still be
   changed.
+- The right-click menu on cells has an App section (1.40.0): "Mark as input
+  cells" while some of the selection is not input cells, and "Unmark input
+  cells" while some of it is. They run `app input <selection>` and
+  `app input clear <selection>`, so undo and messages are the same.
+- The active sheet (1.40.0): `.xlsx` files keep which sheet was showing when
+  saved, as Excel's `activeTab`, and open on it, so an app opens on the sheet
+  with its form. App mode has no way to switch sheets. `app install` says so
+  when the sheet it opens on has no input cells but another sheet has.
 - Files: input cells are saved as Excel's unlocked cells, combined with the
   date format where a cell is a date. Empty input cells are written as
   formatted blanks, and an input range covering whole columns as column
@@ -599,6 +626,11 @@ which holds these parts. Only the summary and usage are required. The category
 order is set once in `excel-features`, and a test checks that every entry has a
 category and that related names exist. Command completion shows each command's
 usage next to its summary.
+
+A description may hold line breaks for steps and paragraphs (1.40.1). The
+panel shows them as they are, and `kxcel-cli` indents every line. The `app`
+page uses them for the steps of making an app, how saving works, and how to
+change an app later.
 
 ### Icon (1.2.0)
 
@@ -854,6 +886,10 @@ The grid and the app are also tested without a window, by feeding simulated inpu
 into `egui`. `excel_command::testing` provides fake services for command crates.
 The app's tests live in `crates/bin/app/src/app/tests/`, one file per topic,
 so `app.rs` holds only the app itself (1.39.1).
+`excel-csv` saves and opens real files in a temporary folder in
+`crates/io/csv/tests/store.rs`: round trips, overwriting without a leftover
+temporary file, errors, the active sheet only, hidden rows, and every warning
+`save_losses` gives (1.39.2).
 
 ## 6. Dependencies
 
@@ -919,6 +955,8 @@ built. The hand checks from stage 2 are listed in section 8.
 | Functions (1.12.0 to 1.15.0) | Covered by automated tests, including every help example with a result | Compare a few results with Excel |
 | Completion limits, Tab closing parentheses, help tabs (1.15.2 to 1.17.0) | Covered by automated tests | Check by hand while typing formulas |
 | Full screen and themes (1.18.0, 1.19.0) | Covered by automated tests, which cannot see the real window | Check `F11`, `theme light`, and that the theme returns after a restart |
+| Functions (1.41.0) | Covered by automated tests, including every help example with a result | Compare `CEILING`, `FLOOR`, `NETWORKDAYS`, and `WORKDAY` with Excel on a few dates and negative numbers |
+| App help and active sheet (1.40.0, 1.40.1) | Covered by automated tests, including a CLI test that installs into a temporary folder | Check by hand: the `app` help page's line breaks in the panel, the right-click input cell items, and an app whose form is on a second sheet |
 | Right-click menu (1.37.0) | Covered by automated tests, which click a few items | Check by hand: each item in a cell, a table, and on row and column headers, in both themes |
 | Numbers in text fill (1.36.0) | Covered by automated tests | Check by hand with the fill handle |
 | `Enter` adds a table row (1.35.0) | Covered by automated tests | Check by hand while typing rows into a table |

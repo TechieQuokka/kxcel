@@ -230,3 +230,28 @@ fn renaming_and_deleting_sheets_rewrites_formulas() {
         "the renamed sheet still answers, and the deleted one is #REF!: {printed}"
     );
 }
+
+#[test]
+fn an_app_opens_on_the_sheet_saved_showing_and_install_says_when_it_has_no_input_cells() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("form.xlsx");
+    let install = |commands: &[&str]| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_kxcel-cli"));
+        command.env("XDG_DATA_HOME", dir.path().join("data")).arg(&file);
+        for line in commands {
+            command.args(["-c", line]);
+        }
+        let output = command.output().unwrap();
+        assert!(output.status.success(), "{}", stderr(&output));
+        stdout(&output)
+    };
+
+    let said = install(&["sheet add 견적", "set A1 수량", "app input B1", "save", "app install 견적 계산기"]);
+    assert!(said.contains("Registered app 견적 계산기"), "{said}");
+    assert!(!said.contains("no input cells"), "{said}");
+    let reopened = cli(&[file.to_str().unwrap(), "-c", "app input"]);
+    assert!(stdout(&reopened).contains("Input cells: B1"), "{}", stdout(&reopened));
+
+    let said = install(&["sheet 1", "save", "app install 견적 계산기"]);
+    assert!(said.contains("It opens on sheet Sheet1, which has no input cells"), "{said}");
+}

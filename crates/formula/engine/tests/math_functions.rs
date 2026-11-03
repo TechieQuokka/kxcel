@@ -117,3 +117,76 @@ fn conditions_follow_their_cells() {
     let book = calculated(&[("A1", "1"), ("A2", "2"), ("B1", "=SUMIF(A1:A3, \">1\")")]);
     assert_eq!(book.active().value("B1".parse().unwrap()), &number(2.0));
 }
+
+#[test]
+fn conditional_averages_and_extremes_with_several_conditions() {
+    for (formula, expected) in [
+        ("=AVERAGEIFS(B1:B5, A1:A5, \"사과\")", number(6.5)),
+        ("=AVERAGEIFS(B1:B5, A1:A5, \"사과\", B1:B5, \">5\")", number(10.0)),
+        ("=AVERAGEIFS(B1:B5, A1:A5, \"없음\")", error(CellError::Div0)),
+        ("=MAXIFS(B1:B5, A1:A5, \"사과\")", number(10.0)),
+        ("=MAXIFS(B1:B5, A1:A5, \"사과\", B1:B5, \"<5\")", number(3.0)),
+        ("=MINIFS(B1:B5, A1:A5, \"사과\")", number(3.0)),
+        ("=MAXIFS(B1:B5, A1:A5, \"없음\")", number(0.0)),
+        ("=MINIFS(B1:B5, A1:A5, \"apple\")", number(0.0)),
+        ("=MAXIFS(B1:B5, A1:A4, \"사과\")", error(CellError::Value)),
+        ("=MINIFS(B1:B5, A1:A5)", error(CellError::Value)),
+        ("=AVERAGEIFS(5, A1:A5, \"사과\")", error(CellError::Value)),
+    ] {
+        assert_eq!(result(&FRUIT, formula), expected, "{formula}");
+    }
+    let cells = [("A1", "a"), ("B1", "1"), ("A2", "b"), ("B2", "=1/0")];
+    assert_eq!(result(&cells, "=MAXIFS(B1:B2, A1:A2, \"a\")"), number(1.0), "a skipped error does not matter");
+    assert_eq!(result(&cells, "=MINIFS(B1:B2, A1:A2, \"b\")"), error(CellError::Div0));
+}
+
+#[test]
+fn sums_of_products() {
+    let cells = [
+        ("A1", "1000"),
+        ("B1", "3"),
+        ("A2", "2500"),
+        ("B2", "2"),
+        ("A3", "메모"),
+        ("B3", "9"),
+        ("A4", "500"),
+        ("C1", "=1/0"),
+    ];
+    for (formula, expected) in [
+        ("=SUMPRODUCT(A1:A4, B1:B4)", number(8000.0)),
+        ("=SUMPRODUCT(A1:A2)", number(3500.0)),
+        ("=SUMPRODUCT(A1:B2, A1:B2)", number(1000.0 * 1000.0 + 9.0 + 2500.0 * 2500.0 + 4.0)),
+        ("=SUMPRODUCT(2, 3)", number(6.0)),
+        ("=SUMPRODUCT(A1:A4, B1:B3)", error(CellError::Value)),
+        ("=SUMPRODUCT(A1:A2, C1:C2)", error(CellError::Div0)),
+        ("=SUMPRODUCT(A1:A1000000, B1:B1000000)", number(8000.0)),
+    ] {
+        assert_eq!(result(&cells, formula), expected, "{formula}");
+    }
+}
+
+#[test]
+fn rounding_to_multiples() {
+    for (formula, expected) in [
+        ("=CEILING(12345, 100)", number(12400.0)),
+        ("=CEILING(12345, 500)", number(12500.0)),
+        ("=CEILING(12400, 100)", number(12400.0)),
+        ("=CEILING(2.1)", number(3.0)),
+        ("=CEILING(1.1, 0.1)", number(1.1)),
+        ("=CEILING(0.7, 0.1)", number(0.7)),
+        ("=CEILING(-2.5, 2)", number(-2.0)),
+        ("=CEILING(-2.5, -2)", number(-4.0)),
+        ("=CEILING(5, 0)", number(0.0)),
+        ("=CEILING(2.5, -2)", error(CellError::Num)),
+        ("=FLOOR(12345, 1000)", number(12000.0)),
+        ("=FLOOR(2.9)", number(2.0)),
+        ("=FLOOR(1.1, 0.1)", number(1.1)),
+        ("=FLOOR(-2.5, 2)", number(-4.0)),
+        ("=FLOOR(-2.5, -2)", number(-2.0)),
+        ("=FLOOR(5, 0)", error(CellError::Div0)),
+        ("=FLOOR(2.5, -2)", error(CellError::Num)),
+        ("=FLOOR(\"x\", 2)", error(CellError::Value)),
+    ] {
+        assert_eq!(value_of(formula), expected, "{formula}");
+    }
+}

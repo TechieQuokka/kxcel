@@ -32,7 +32,15 @@ impl Doc {
     pub fn to_text(&self) -> String {
         let mut text = format!("{}\n  {}\n", self.usage, self.summary);
         if !self.description.is_empty() {
-            text.push_str(&format!("\n  {}\n", self.description));
+            text.push('\n');
+            // Every line is indented, and blank lines between paragraphs stay blank.
+            for line in self.description.lines() {
+                if line.is_empty() {
+                    text.push('\n');
+                } else {
+                    text.push_str(&format!("  {line}\n"));
+                }
+            }
         }
         if !self.args.is_empty() {
             text.push_str("\nArguments:\n");
@@ -60,6 +68,12 @@ impl Doc {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plain_text_indents_every_line_of_the_description() {
+        let doc = Doc { usage: "x", summary: "s", description: "First.\n\nSteps:\n1. One.", ..Doc::BLANK };
+        assert_eq!(doc.to_text(), "x\n  s\n\n  First.\n\n  Steps:\n  1. One.\n");
+    }
 
     #[test]
     fn plain_text_shows_every_part_given() {

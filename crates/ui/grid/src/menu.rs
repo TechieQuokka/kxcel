@@ -6,7 +6,7 @@
 
 use egui::{Area, Button, Frame, Id, Key, Order, Pos2, RichText, Ui};
 use excel_command::quote_arg;
-use excel_model::{CellAddr, MAX_COLS, MAX_ROWS, Sheet, col_name};
+use excel_model::{CellAddr, CellRange, MAX_COLS, MAX_ROWS, Sheet, col_name};
 
 use crate::{FilterPopup, GridAction, GridState};
 
@@ -172,9 +172,35 @@ fn sections(state: &GridState, sheet: &Sheet, place: Place) -> Vec<Section> {
                 if plain { ("Show numbers with commas", "comma") } else { ("Show numbers without commas", "plain") };
             items.push(item(label, "", command(format!("format {selection} {style}"))));
             sections.push(Section { title: Some("Data".into()), items });
+
+            let (some, all) = input_coverage(sheet, selection);
+            let mut items = Vec::new();
+            if !all {
+                items.push(item("Mark as input cells", "", command(format!("app input {selection}"))));
+            }
+            if some {
+                items.push(item("Unmark input cells", "", command(format!("app input clear {selection}"))));
+            }
+            sections.push(Section { title: Some("App".into()), items });
         }
     }
     sections
+}
+
+/// Whether some, and whether all, of `area` is input cells.
+fn input_coverage(sheet: &Sheet, area: CellRange) -> (bool, bool) {
+    let size = |r: CellRange| u64::from(r.rows()) * u64::from(r.cols());
+    let covered: u64 = sheet
+        .meta()
+        .input_cells
+        .overlapping(area)
+        .map(|r| {
+            let start = CellAddr::new(r.start.row.max(area.start.row), r.start.col.max(area.start.col));
+            let end = CellAddr::new(r.end.row.min(area.end.row), r.end.col.min(area.end.col));
+            size(CellRange::new(start, end))
+        })
+        .sum();
+    (covered > 0, covered == size(area))
 }
 
 /// Shows the menu where it was opened. Choosing an item, `Esc`, or a click
@@ -341,6 +367,37 @@ mod tests {
         {
             assert!(lines.contains(&wanted.to_owned()), "{wanted} in {lines:?}");
         }
+    }
+
+    #[test]
+    fn input_cell_items_follow_the_selection() {
+        let mut state = GridState::default();
+        state.anchor = "B2".parse().unwrap();
+        state.cursor = "B4".parse().unwrap();
+        let mut sheet = Sheet::new("S");
+        let app_lines = |state: &GridState, sheet: &Sheet| -> Vec<String> {
+            sections(state, sheet, Place::Cell)
+                .into_iter()
+                .filter(|s| s.title.as_deref() == Some("App"))
+                .flat_map(|s| s.items)
+                .filter_map(|i| match i.choice {
+                    Choice::Command(line) => Some(format!("{}: {line}", i.label)),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert_eq!(app_lines(&state, &sheet), ["Mark as input cells: app input B2:B4"]);
+
+        let mut meta = sheet.meta().clone();
+        meta.input_cells.add("B3:C9".parse().unwrap());
+        sheet.set_meta(meta);
+        assert_eq!(
+            app_lines(&state, &sheet),
+            ["Mark as input cells: app input B2:B4", "Unmark input cells: app input clear B2:B4"],
+            "partly input"
+        );
+        state.anchor = "B3".parse().unwrap();
+        assert_eq!(app_lines(&state, &sheet), ["Unmark input cells: app input clear B3:B4"], "all input");
     }
 
     #[test]

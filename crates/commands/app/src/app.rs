@@ -18,15 +18,31 @@ impl Command for AppCommand {
             category: "App",
             summary: "Mark input cells, and register workbooks as apps",
             usage: "app [input [<range> | clear [<range>]] | install <name> [nosave] [icon=<text>] | uninstall <name> | list]",
-            description: "A workbook opened with excel --app shows only its grid, and its users can change only \
-                          input cells. app input <range> marks cells as input cells, empty ones too. app input \
-                          clear unmarks every input cell on the sheet, and app input clear <range> unmarks some. \
-                          With nothing after input, lists the input ranges. Input cells show a light tint, but \
-                          outside app mode every cell can still be changed. They are saved as Excel's unlocked \
-                          cells. app install registers the saved workbook in the app list and dock under a \
-                          name, with an icon showing its first two letters, or the text after icon=. It opens \
-                          in app mode, and with nosave it never saves, so each start is fresh. app uninstall \
-                          removes the registration and keeps the file, and app list shows registered apps.",
+            description: "An app is a workbook that opens showing only its grid, where users can change only \
+                          the input cells, such as a quote calculator.\n\
+                          \n\
+                          Making an app:\n\
+                          1. Build the form with labels and formulas, on one sheet.\n\
+                          2. Mark the cells users fill in: select them and right-click, Mark as input cells, \
+                          or type app input B2:B9. They show a light tint, and app input lists them.\n\
+                          3. Save as an .xlsx file while the form's sheet is showing. The app opens on that \
+                          sheet and cannot switch sheets.\n\
+                          4. Type app install and a name, such as app install 견적 계산기. The app appears in \
+                          the app list and can be added to the dock. Its icon shows the name's first two \
+                          letters, or the text after icon=.\n\
+                          \n\
+                          Saving: without nosave, the app saves what users type into the same file, so the \
+                          next start shows it. With nosave nothing is ever saved, so each start is fresh.\n\
+                          \n\
+                          Changing an app: open its file as usual, such as kxcel quote.xlsx, change it, and \
+                          save. The app shows the change on its next start, without installing again. After \
+                          moving or renaming the file, install again.\n\
+                          \n\
+                          app input clear unmarks every input cell on the sheet, and app input clear <range> \
+                          unmarks some. Outside app mode every cell can still be changed. Input cells are \
+                          saved as Excel's unlocked cells. app uninstall removes an app and keeps its file, and \
+                          app list shows the apps with their files. kxcel --app <file> opens any file as an \
+                          app without installing it.",
             args: &[
                 ("input <range>", "Marks the range as input cells"),
                 ("input clear [<range>]", "Unmarks the range, or every input cell on the sheet"),
@@ -101,8 +117,14 @@ fn install(ctx: &mut Context<'_>, words: &[&str]) -> Result<(), CommandError> {
     install::refresh(&data);
     let verb = if replaced { "Updated" } else { "Registered" };
     let mut message = format!("{verb} app {name}, which opens {} in app mode", file.display());
-    if ctx.doc.workbook.sheets().iter().all(|sheet| sheet.meta().input_cells.is_empty()) {
+    let workbook = &ctx.doc.workbook;
+    if workbook.sheets().iter().all(|sheet| sheet.meta().input_cells.is_empty()) {
         message.push_str(". It has no input cells yet: app input <range> marks some, then save");
+    } else if workbook.active().meta().input_cells.is_empty() {
+        message.push_str(&format!(
+            ". It opens on sheet {}, which has no input cells: switch to the sheet with them, then save",
+            workbook.active().name
+        ));
     }
     ctx.say(message);
     Ok(())

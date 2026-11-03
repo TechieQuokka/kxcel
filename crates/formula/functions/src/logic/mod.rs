@@ -1,6 +1,7 @@
 pub(crate) mod and;
 pub(crate) mod if_fn;
 pub(crate) mod iferror;
+pub(crate) mod ifna;
 pub(crate) mod ifs;
 pub(crate) mod isblank;
 pub(crate) mod iserror;

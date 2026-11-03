@@ -34,9 +34,16 @@ impl FunctionRegistry {
         registry.register(math::sumif::SumIf);
         registry.register(math::sumifs::SumIfs);
         registry.register(math::averageif::AverageIf);
+        registry.register(math::ifs_range::AverageIfs);
+        registry.register(math::ifs_range::MaxIfs);
+        registry.register(math::ifs_range::MinIfs);
+        registry.register(math::sumproduct::SumProduct);
+        registry.register(math::multiple::Ceiling);
+        registry.register(math::multiple::Floor);
         registry.register(logic::if_fn::If);
         registry.register(logic::ifs::Ifs);
         registry.register(logic::iferror::IfError);
+        registry.register(logic::ifna::IfNa);
         registry.register(logic::and::And);
         registry.register(logic::or::Or);
         registry.register(logic::not::Not);
@@ -68,6 +75,11 @@ impl FunctionRegistry {
         registry.register(date::month::Month);
         registry.register(date::day::Day);
         registry.register(date::datedif::DateDif);
+        registry.register(date::edate::EDate);
+        registry.register(date::edate::EoMonth);
+        registry.register(date::weekday_fn::Weekday);
+        registry.register(date::networkdays::NetworkDays);
+        registry.register(date::workday::Workday);
         registry
     }
 

@@ -72,3 +72,18 @@ fn value_kinds() {
         assert_eq!(result(formula), yes(expected), "{formula}");
     }
 }
+
+#[test]
+fn ifna_replaces_only_not_found() {
+    let cells = [("A1", "사과"), ("B1", "3"), ("Z99", "")];
+    let lookup = |formula: &str| {
+        let mut all = cells.to_vec();
+        all[2].1 = formula;
+        calculated(&all).active().value("Z99".parse().unwrap()).clone()
+    };
+    assert_eq!(lookup("=IFNA(VLOOKUP(\"사과\", A1:B1, 2, FALSE), 0)"), number(3.0));
+    assert_eq!(lookup("=IFNA(VLOOKUP(\"배\", A1:B1, 2, FALSE), \"없음\")"), CellValue::Text("없음".into()));
+    assert_eq!(result("=IFNA(A3, 0)"), CellValue::Error(CellError::Div0), "other errors stay");
+    assert_eq!(result("=IFNA(A1, 0)"), number(10.0));
+    assert_eq!(result("=IFNA(A1)"), CellValue::Error(CellError::Value));
+}

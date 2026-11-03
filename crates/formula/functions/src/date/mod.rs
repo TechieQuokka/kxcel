@@ -1,8 +1,12 @@
 pub(crate) mod date_fn;
 pub(crate) mod datedif;
 pub(crate) mod day;
+pub(crate) mod edate;
 pub(crate) mod month;
+pub(crate) mod networkdays;
 pub(crate) mod today;
+pub(crate) mod weekday_fn;
+pub(crate) mod workday;
 pub(crate) mod year;
 
 use excel_model::{CellError, date_serial, serial_date};
@@ -33,4 +37,51 @@ pub(crate) fn normalized(year: f64, month: f64, day: f64) -> Result<f64, CellErr
 /// How many days a month has.
 pub(crate) fn days_in_month(year: i64, month: u32) -> u32 {
     (28..=31).rev().find(|day| date_serial(year, month, *day).is_some()).unwrap_or(28)
+}
+
+/// The day of the week of a serial number, 0 for Sunday to 6 for Saturday.
+pub(crate) fn weekday(serial: f64) -> u32 {
+    // Serial 1, 1900-01-01, is a Sunday in Excel's count.
+    ((serial.floor() as i64 - 1).rem_euclid(7)) as u32
+}
+
+/// Whether a serial number falls on Monday to Friday.
+pub(crate) fn is_weekday(serial: f64) -> bool {
+    !matches!(weekday(serial), 0 | 6)
+}
+
+/// The days of an optional holidays argument, as whole serial numbers.
+/// Empty cells are skipped, and anything else that is not a date is `#VALUE!`.
+pub(crate) fn holidays(arg: Option<&Arg>) -> Result<std::collections::HashSet<i64>, CellError> {
+    let mut days = std::collections::HashSet::new();
+    let mut add = |value: &excel_model::CellValue| match value {
+        excel_model::CellValue::Number(n) => {
+            days.insert(n.floor() as i64);
+            Ok(())
+        }
+        excel_model::CellValue::Empty => Ok(()),
+        excel_model::CellValue::Error(error) => Err(*error),
+        _ => Err(CellError::Value),
+    };
+    match arg {
+        None => {}
+        Some(Arg::Cells(cells)) => cells.values().try_for_each(&mut add)?,
+        Some(Arg::Value(value)) => add(value)?,
+    }
+    Ok(days)
+}
+
+/// The date `months` after a date, keeping its day where the month has it and
+/// using the month's last day otherwise, as a serial number.
+pub(crate) fn months_later(date: &Arg, months: &Arg, last_day: bool) -> Result<f64, CellError> {
+    let (year, month, day) = parts(date)?;
+    let months = scalar_number(months)?.trunc();
+    if months.abs() > 1e6 {
+        return Err(CellError::Num);
+    }
+    let total = year * 12 + i64::from(month) - 1 + months as i64;
+    let (year, month) = (total.div_euclid(12), total.rem_euclid(12) as u32 + 1);
+    let last = days_in_month(year, month);
+    let day = if last_day { last } else { day.min(last) };
+    date_serial(year, month, day).ok_or(CellError::Num)
 }

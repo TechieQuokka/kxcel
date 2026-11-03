@@ -53,6 +53,15 @@ fn unknown_functions_survive_with_their_stored_value() {
 }
 
 #[test]
+fn the_active_sheet_survives() {
+    for active in 0..3 {
+        let mut book = Workbook::from_sheets(vec![Sheet::new("First"), Sheet::new("견적"), Sheet::new("Third")]);
+        assert!(book.set_active(active));
+        assert_eq!(round_trip(&book).active_index(), active);
+    }
+}
+
+#[test]
 fn multiple_sheets_keep_their_order_and_names() {
     let book = Workbook::from_sheets(vec![Sheet::new("First"), Sheet::new("둘째"), Sheet::new("With Space")]);
     let names: Vec<String> = round_trip(&book).sheets().iter().map(|s| s.name.clone()).collect();

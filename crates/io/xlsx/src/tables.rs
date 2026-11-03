@@ -22,6 +22,8 @@ type BoxError = Box<dyn std::error::Error>;
 pub(crate) struct FileMeta {
     pub sheets: HashMap<String, SheetMeta>,
     pub warnings: Vec<String>,
+    /// The sheet the file was saved showing, if it names one.
+    pub active_sheet: Option<String>,
 }
 
 /// Reads tables, their filters, and hidden rows from every sheet.
@@ -32,6 +34,7 @@ pub(crate) fn read_meta<R: Read + Seek>(archive: &mut ZipArchive<R>) -> Result<F
     let styles = read_part(archive, "xl/styles.xml").unwrap_or_default();
     let unlocked = unlocked_styles(&styles);
     let plain = plain_styles(&styles);
+    found.active_sheet = read_part(archive, "xl/workbook.xml").ok().and_then(|xml| active_sheet(&xml));
     for (name, part) in sheet_parts(archive)? {
         let Ok(xml) = read_part(archive, &part) else {
             continue;
@@ -63,6 +66,14 @@ pub(crate) fn read_meta<R: Read + Seek>(archive: &mut ZipArchive<R>) -> Result<F
         found.warnings.push("tables without a header row".to_owned());
     }
     Ok(found)
+}
+
+/// The name of the sheet a workbook's first view shows, from its `activeTab`,
+/// which counts sheets from zero in workbook order.
+fn active_sheet(workbook: &str) -> Option<String> {
+    let view = elements(workbook, "workbookView").next()?;
+    let index: usize = attribute(view, "activeTab").and_then(|text| text.parse().ok()).unwrap_or(0);
+    elements(workbook, "sheet").nth(index).and_then(|sheet| attribute(sheet, "name"))
 }
 
 /// Each sheet's name and the path of its part, in workbook order.
@@ -440,6 +451,17 @@ mod tests {
         assert_eq!(table.filters[0].column, 3);
         assert!(!all_kept, "a top 10 filter cannot be kept");
         assert!(read_table(r#"<table displayName="T" ref="A1:B2" headerRowCount="0"/>"#).is_none());
+    }
+
+    #[test]
+    fn reads_the_active_sheet() {
+        let workbook = r#"<workbook><bookViews><workbookView xWindow="0" activeTab="1"/></bookViews>
+            <sheets><sheet name="One" sheetId="1" r:id="rId1"/><sheet name="&amp;Two" sheetId="2" r:id="rId2"/></sheets></workbook>"#;
+        assert_eq!(active_sheet(workbook).as_deref(), Some("&Two"));
+        let first = workbook.replace(r#" activeTab="1""#, "");
+        assert_eq!(active_sheet(&first).as_deref(), Some("One"));
+        assert_eq!(active_sheet(&workbook.replace(r#"activeTab="1""#, r#"activeTab="9""#)), None);
+        assert_eq!(active_sheet("<workbook><sheets/></workbook>"), None);
     }
 
     #[test]

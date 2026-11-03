@@ -6,10 +6,12 @@ pub(crate) mod counta;
 pub(crate) mod countblank;
 pub(crate) mod countif;
 pub(crate) mod countifs;
+pub(crate) mod ifs_range;
 pub(crate) mod int;
 pub(crate) mod max;
 pub(crate) mod min;
 pub(crate) mod mod_fn;
+pub(crate) mod multiple;
 pub(crate) mod power;
 pub(crate) mod product;
 pub(crate) mod round;
@@ -19,6 +21,7 @@ pub(crate) mod sqrt;
 pub(crate) mod sum;
 pub(crate) mod sumif;
 pub(crate) mod sumifs;
+pub(crate) mod sumproduct;
 
 use excel_model::{CellError, CellValue};
 

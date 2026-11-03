@@ -32,9 +32,11 @@ fn temporary_path(path: &Path) -> PathBuf {
 
 fn encode(workbook: &Workbook) -> Result<Vec<u8>, rust_xlsxwriter::XlsxError> {
     let mut output = XlsxWorkbook::new();
-    for sheet in workbook.sheets() {
+    for (index, sheet) in workbook.sheets().iter().enumerate() {
         let target = output.add_worksheet();
         target.set_name(&sheet.name)?;
+        // The active sheet is what the file opens showing, here and in Excel.
+        target.set_active(index == workbook.active_index());
         for (col, width) in sheet.custom_col_widths() {
             target.set_column_width_pixels(col as u16, width.round() as u32)?;
         }
